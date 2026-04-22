@@ -3,6 +3,7 @@
 
 use esp_hal::{
     clock::CpuClock,
+    delay::Delay,
     interrupt::software::SoftwareInterruptControl,
     rng::Rng,
     timer::timg::TimerGroup,
@@ -24,14 +25,9 @@ fn main() -> ! {
     esp_rtos::start(timg0.timer0, sw_ints.software_interrupt0);
 
     let radio_ctrl = esp_radio::init().expect("Radio init failed");
-    let (mut wifi_ctrl, interfaces) =
+    let (_wifi_ctrl, interfaces) =
         esp_radio::wifi::new(&radio_ctrl, peripherals.WIFI, Default::default())
             .expect("WiFi new failed");
-    wifi_ctrl
-        .set_mode(esp_radio::wifi::WifiMode::Sta)
-        .expect("set mode failed");
-    wifi_ctrl.start().expect("WiFi start failed");
-
     let mut esp_now = interfaces.esp_now;
 
     let mac = esp_radio::wifi::sta_mac();
@@ -42,11 +38,12 @@ fn main() -> ! {
     println!("Peer count: {:?}", esp_now.peer_count());
     println!("Broadcasting every ~1 second...");
 
+    let delay = Delay::new();
     let mut seq = 0u32;
     let mut rx_count = 0u32;
-    let mut tick = 0u32;
+    let mut loop_count = 0u32;
     loop {
-        tick = tick.wrapping_add(1);
+        loop_count += 1;
 
         // Check for received frames
         if let Some(received) = esp_now.receive() {
@@ -60,12 +57,11 @@ fn main() -> ! {
                 &data[..data.len().min(16)]);
         }
 
-        // Send broadcast every ~1 second
-        if tick % 100_000 == 0 {
+        // Send broadcast every ~1 second (100 loops * 10ms)
+        if loop_count % 100 == 0 {
             seq += 1;
             let mut msg = [0u8; 16];
             msg[..9].copy_from_slice(b"BOB_PING_");
-            // Simple seq number in ASCII
             let s = seq % 1000;
             msg[9] = b'0' + (s / 100) as u8;
             msg[10] = b'0' + ((s / 10) % 10) as u8;
@@ -80,6 +76,7 @@ fn main() -> ! {
             }
         }
 
-        for _ in 0..1000 { core::hint::spin_loop(); }
+        // 10ms delay — gives RTOS scheduler time to process WiFi events
+        delay.delay_millis(10);
     }
 }

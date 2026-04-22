@@ -3,6 +3,7 @@
 
 use esp_hal::{
     clock::CpuClock,
+    delay::Delay,
     interrupt::software::SoftwareInterruptControl,
     rng::Rng,
     timer::timg::TimerGroup,
@@ -24,14 +25,9 @@ fn main() -> ! {
     esp_rtos::start(timg0.timer0, sw_ints.software_interrupt0);
 
     let radio_ctrl = esp_radio::init().expect("Radio init failed");
-    let (mut wifi_ctrl, interfaces) =
+    let (_wifi_ctrl, interfaces) =
         esp_radio::wifi::new(&radio_ctrl, peripherals.WIFI, Default::default())
             .expect("WiFi new failed");
-    wifi_ctrl
-        .set_mode(esp_radio::wifi::WifiMode::Sta)
-        .expect("set mode failed");
-    wifi_ctrl.start().expect("WiFi start failed");
-
     let mut esp_now = interfaces.esp_now;
 
     let mac = esp_radio::wifi::sta_mac();
@@ -42,11 +38,11 @@ fn main() -> ! {
     println!("Peer count: {:?}", esp_now.peer_count());
     println!("Waiting for frames...");
 
+    let delay = Delay::new();
     let mut count = 0u32;
-    let mut tick = 0u32;
+    let mut seq = 0u32;
     loop {
-        tick = tick.wrapping_add(1);
-
+        // Poll for received frames
         if let Some(received) = esp_now.receive() {
             count += 1;
             let data = received.data();
@@ -58,22 +54,24 @@ fn main() -> ! {
                 &data[..data.len().min(16)]);
         }
 
-        // Also try sending a beacon every ~2 seconds
-        if tick % 200_000 == 0 {
+        // Send a ping every 2 seconds
+        seq += 1;
+        if seq % 200 == 0 {
             let msg = b"ALICE_PING";
             match esp_now.send(&BROADCAST_ADDRESS, msg) {
                 Ok(waiter) => match waiter.wait() {
-                    Ok(()) => println!("TX ok: ALICE_PING"),
+                    Ok(()) => println!("TX ok: ALICE_PING #{}", seq / 200),
                     Err(e) => println!("TX wait err: {:?}", e),
                 },
                 Err(e) => println!("TX err: {:?}", e),
             }
         }
 
-        if tick % 500_000 == 0 {
-            println!("heartbeat tick={} rx_count={}", tick, count);
+        if seq % 500 == 0 {
+            println!("heartbeat rx_count={}", count);
         }
 
-        for _ in 0..1000 { core::hint::spin_loop(); }
+        // 10ms delay — gives RTOS scheduler time to process WiFi events
+        delay.delay_millis(10);
     }
 }
