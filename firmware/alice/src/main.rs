@@ -83,6 +83,9 @@ fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
+    // Init heap allocator (required by WiFi stack)
+    esp_alloc::heap_allocator!(size: 72 * 1024);
+
     // Init RTOS scheduler (required before esp-radio)
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
