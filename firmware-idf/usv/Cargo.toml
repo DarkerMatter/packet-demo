@@ -3,6 +3,9 @@ name = "pqxdh-usv"
 version = "0.1.0"
 edition = "2021"
 
+[build-dependencies]
+embuild = "0.33"
+
 [dependencies]
 esp-idf-svc = { version = "0.52", features = ["experimental"] }
 esp-idf-hal = "0.46"

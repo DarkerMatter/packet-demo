@@ -4,7 +4,7 @@ use std::time::Duration;
 use esp_idf_svc::espnow::{EspNow, PeerInfo, BROADCAST};
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use esp_idf_svc::wifi::{EspWifi, WifiDriver};
+use esp_idf_svc::wifi::{EspWifi, AccessPointConfiguration, Configuration};
 use esp_idf_hal::peripherals::Peripherals;
 use log::*;
 
@@ -16,41 +16,55 @@ fn main() {
     let sysloop = EspSystemEventLoop::take().unwrap();
     let nvs = EspDefaultNvsPartition::take().unwrap();
 
-    // Init WiFi driver (required for ESP-NOW)
-    let wifi_driver = WifiDriver::new(peripherals.modem, sysloop.clone(), Some(nvs)).unwrap();
+    // Use AP mode — fixed channel, no scanning
+    let mut wifi = EspWifi::new(peripherals.modem, sysloop, Some(nvs)).unwrap();
+    wifi.set_configuration(&Configuration::AccessPoint(AccessPointConfiguration {
+        ssid: "USV-ESPNOW".try_into().unwrap(),
+        channel: 1,
+        ..Default::default()
+    })).unwrap();
+    wifi.start().unwrap();
 
-    // Init ESP-NOW
+    // Verify channel
+    let mut primary: u8 = 0;
+    let mut secondary: u32 = 0;
+    unsafe {
+        esp_idf_svc::sys::esp_wifi_get_channel(&mut primary, &mut secondary as *mut u32 as *mut _);
+    }
+    info!("WiFi AP mode, channel {} (secondary {})", primary, secondary);
+
     let esp_now = EspNow::take().unwrap();
+    info!("ESP-NOW version: {:?}", esp_now.get_version());
 
-    // Add broadcast peer
-    let peer = PeerInfo {
+    esp_now.add_peer(PeerInfo {
         peer_addr: BROADCAST,
         ..Default::default()
-    };
-    esp_now.add_peer(peer).unwrap();
+    }).unwrap();
 
-    // Register receive callback
-    esp_now
-        .register_recv_cb(|src_addr, data| {
-            info!(
-                "RX from {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} len={}: {:?}",
-                src_addr[0], src_addr[1], src_addr[2], src_addr[3], src_addr[4], src_addr[5],
-                data.len(),
-                core::str::from_utf8(&data[..data.len().min(20)]).unwrap_or("<binary>")
-            );
-        })
-        .unwrap();
+    // Register send callback too for debugging
+    esp_now.register_send_cb(|_mac, status| {
+        info!("send_cb: {:?}", status);
+    }).unwrap();
 
-    info!("ESP-NOW TEST - USV");
-    info!("Sending broadcasts every 2 seconds...");
+    esp_now.register_recv_cb(|info, data| {
+        let s = info.src_addr;
+        info!(
+            ">>> RX from {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} len={}: {:?}",
+            s[0], s[1], s[2], s[3], s[4], s[5],
+            data.len(),
+            core::str::from_utf8(&data[..data.len().min(30)]).unwrap_or("<bin>")
+        );
+    }).unwrap();
+
+    info!("ESP-NOW TEST - USV ready (AP mode, ch1)");
 
     let mut seq = 0u32;
     loop {
         seq += 1;
-        let msg = format!("USV_PING_{:03}", seq);
+        let msg = format!("USV_{:03}", seq);
         match esp_now.send(BROADCAST, msg.as_bytes()) {
-            Ok(()) => info!("TX #{}: {}", seq, msg),
-            Err(e) => error!("TX #{} error: {:?}", seq, e),
+            Ok(()) => info!("TX #{}", seq),
+            Err(e) => error!("TX err: {:?}", e),
         }
         thread::sleep(Duration::from_secs(2));
     }
