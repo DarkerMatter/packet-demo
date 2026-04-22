@@ -1,0 +1,3 @@
+[workspace]
+members = ["usv", "ground"]
+resolver = "2"

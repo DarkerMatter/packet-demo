@@ -1,3 +1,5 @@
 /docs/superpowers
 /firmware/target
 /viewer/node_modules
+/firmware-idf/.embuild
+/firmware-idf/target
