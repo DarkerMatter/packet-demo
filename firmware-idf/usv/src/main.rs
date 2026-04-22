@@ -4,7 +4,7 @@ use std::time::Duration;
 use esp_idf_svc::espnow::{EspNow, PeerInfo, BROADCAST};
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use esp_idf_svc::wifi::{EspWifi, AccessPointConfiguration, Configuration};
+use esp_idf_svc::wifi::{EspWifi, AccessPointConfiguration, ClientConfiguration, Configuration};
 use esp_idf_hal::peripherals::Peripherals;
 use log::*;
 
@@ -18,11 +18,14 @@ fn main() {
 
     // Use AP mode — fixed channel, no scanning
     let mut wifi = EspWifi::new(peripherals.modem, sysloop, Some(nvs)).unwrap();
-    wifi.set_configuration(&Configuration::AccessPoint(AccessPointConfiguration {
-        ssid: "USV-ESPNOW".try_into().unwrap(),
-        channel: 1,
-        ..Default::default()
-    })).unwrap();
+    wifi.set_configuration(&Configuration::Mixed(
+        ClientConfiguration::default(),
+        AccessPointConfiguration {
+            ssid: "USV-ESPNOW".try_into().unwrap(),
+            channel: 1,
+            ..Default::default()
+        },
+    )).unwrap();
     wifi.start().unwrap();
 
     // Verify channel
