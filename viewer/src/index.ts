@@ -33,9 +33,9 @@ parser.on("data", (line: string) => {
   const ts = timestamp();
   const trimmed = line.trim();
 
-  if (trimmed.startsWith("[ALICE]")) {
+  if (trimmed.startsWith("[USV]")) {
     console.log(`${ts} ${pc.blue(trimmed)}`);
-  } else if (trimmed.startsWith("[BOB]")) {
+  } else if (trimmed.startsWith("[GND]")) {
     console.log(`${ts} ${pc.green(trimmed)}`);
   } else if (trimmed.startsWith("[EVE]")) {
     console.log(`${ts} ${pc.red(pc.bold(trimmed))}`);

@@ -77,15 +77,19 @@ fn main() -> ! {
     // Init radio + ESP-NOW
     let mut rng = EspCryptoRng(Rng::new());
     let radio_ctrl = esp_radio::init().expect("Radio init failed");
-    let (_wifi_ctrl, interfaces) =
+    let (mut wifi_ctrl, interfaces) =
         esp_radio::wifi::new(&radio_ctrl, peripherals.WIFI, Default::default())
             .expect("WiFi new failed");
+    wifi_ctrl
+        .set_mode(esp_radio::wifi::WifiMode::Sta)
+        .expect("WiFi set mode failed");
+    wifi_ctrl.start().expect("WiFi start failed");
     let mut esp_now = interfaces.esp_now;
 
     // Print MAC
     let mac = esp_radio::wifi::sta_mac();
     println!(
-        "[BOB] MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        "[GND] MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
 
@@ -93,9 +97,9 @@ fn main() -> ! {
     let mut led = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
 
     // Generate Bob identity
-    println!("[BOB] Generating identity keys (X25519 + Ed25519 + ML-KEM-768)...");
+    println!("[GND] Generating identity keys (X25519 + Ed25519 + ML-KEM-768)...");
     let mut bob_id = BobIdentity::generate(&mut rng);
-    println!("[BOB] Identity ready. Broadcasting prekey bundle...");
+    println!("[GND] Identity ready. Broadcasting prekey bundle...");
 
     let bundle = bob_id.prekey_bundle();
     let bundle_encoded = bundle.encode();
@@ -199,21 +203,21 @@ fn main() -> ! {
                         match DecodedMessage::from_reassembled(msg_type, &data) {
                             Ok(DecodedMessage::InitialMessage(msg)) => {
                                 if matches!(state, AppState::WaitingForAlice) {
-                                    println!("[BOB] Received InitialMessage from Alice");
+                                    println!("[GND] Received InitialMessage from USV");
                                     led_state = LedState::Handshaking;
 
-                                    println!("[BOB] Processing PQXDH handshake...");
+                                    println!("[GND] Processing PQXDH handshake...");
                                     match bob_id.process_initial_message(&msg) {
                                         Ok((session, plaintext)) => {
                                             let text = core::str::from_utf8(&plaintext)
                                                 .unwrap_or("<binary>");
-                                            println!("[BOB] Handshake complete! Payload: {}", text);
+                                            println!("[GND] Handshake complete! Payload: {}", text);
 
                                             if msg.mode == HandshakeMode::ClassicalOnly {
-                                                println!("[BOB] Mode: CLASSICAL ONLY (X25519)");
+                                                println!("[GND] Mode: CLASSICAL ONLY (X25519)");
                                                 println!("[EVE] Recorded handshake. Will decrypt in 2034.");
                                             } else {
-                                                println!("[BOB] Mode: HYBRID (X25519 + ML-KEM-768)");
+                                                println!("[GND] Mode: HYBRID (X25519 + ML-KEM-768)");
                                                 println!(
                                                     "[EVE] Recorded handshake. Cannot decrypt (quantum-resistant)."
                                                 );
@@ -223,7 +227,7 @@ fn main() -> ! {
                                             led_state = LedState::Established;
                                         }
                                         Err(e) => {
-                                            println!("[BOB] Handshake FAILED: {:?}", e);
+                                            println!("[GND] Handshake FAILED: {:?}", e);
                                             led_state = LedState::Error;
                                         }
                                     }
@@ -235,7 +239,7 @@ fn main() -> ! {
                                         Ok(pt) => {
                                             let text = core::str::from_utf8(&pt)
                                                 .unwrap_or("<binary>");
-                                            println!("[BOB] Received: {}", text);
+                                            println!("[GND] Received: {}", text);
 
                                             // Flash LED
                                             led_state = LedState::TouchFlash;
@@ -257,15 +261,15 @@ fn main() -> ! {
                                                             .send(&BROADCAST_ADDRESS, &raw)
                                                             .map(|w| w.wait());
                                                     }
-                                                    println!("[BOB] Sent encrypted pong");
+                                                    println!("[GND] Sent encrypted pong");
                                                 }
                                                 Err(e) => {
-                                                    println!("[BOB] Encrypt pong failed: {:?}", e);
+                                                    println!("[GND] Encrypt pong failed: {:?}", e);
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            println!("[BOB] Decrypt failed: {:?}", e);
+                                            println!("[GND] Decrypt failed: {:?}", e);
                                         }
                                     }
                                 }
@@ -274,7 +278,7 @@ fn main() -> ! {
                                 // Print Alice's relayed logs via USB serial
                                 let text = core::str::from_utf8(&relay.message)
                                     .unwrap_or("<invalid utf8>");
-                                println!("[ALICE] {}", text);
+                                println!("[USV] {}", text);
                             }
                             Ok(_) => {}
                             Err(_) => {}

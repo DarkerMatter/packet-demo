@@ -63,7 +63,7 @@ fn next_msg_id() -> u16 {
 fn log_send(esp_now: &mut EspNow<'_>, msg: &[u8]) {
     // Print locally (visible when USB-connected for debug)
     if let Ok(s) = core::str::from_utf8(msg) {
-        println!("[ALICE] {}", s);
+        println!("[USV] {}", s);
     }
     // Relay log to Bob via ESP-NOW
     let mut relay = pqxdh_shared::pqxdh::LogRelay {
@@ -94,15 +94,19 @@ fn main() -> ! {
     // Init radio + ESP-NOW
     let mut rng = EspCryptoRng(Rng::new());
     let radio_ctrl = esp_radio::init().expect("Radio init failed");
-    let (_wifi_ctrl, interfaces) =
+    let (mut wifi_ctrl, interfaces) =
         esp_radio::wifi::new(&radio_ctrl, peripherals.WIFI, Default::default())
             .expect("WiFi new failed");
+    wifi_ctrl
+        .set_mode(esp_radio::wifi::WifiMode::Sta)
+        .expect("WiFi set mode failed");
+    wifi_ctrl.start().expect("WiFi start failed");
     let mut esp_now = interfaces.esp_now;
 
     // Print MAC
     let mac = esp_radio::wifi::sta_mac();
     println!(
-        "[ALICE] MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        "[USV] MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
 
@@ -116,7 +120,7 @@ fn main() -> ! {
     // Generate Alice identity
     log_send(&mut esp_now, b"Generating identity keys...");
     let alice_id = AliceIdentity::generate(&mut rng);
-    log_send(&mut esp_now, b"Identity ready. Waiting for Bob's prekey bundle...");
+    log_send(&mut esp_now, b"Identity ready. Waiting for Ground Station's prekey bundle...");
 
     let mut reassembler = Reassembler::new(2000);
     let mut state = AppState::WaitingForBundle;
@@ -306,7 +310,7 @@ fn handle_message(
             if !matches!(state, AppState::WaitingForBundle) {
                 return;
             }
-            log_send(esp_now, b"Received Bob's prekey bundle");
+            log_send(esp_now, b"Received Ground Station's prekey bundle");
             *led_state = LedState::Handshaking;
 
             log_send(esp_now, b"Running PQXDH handshake...");
@@ -340,7 +344,7 @@ fn handle_message(
                 match session.decrypt(&msg) {
                     Ok(pt) => {
                         let text = core::str::from_utf8(&pt).unwrap_or("<binary>");
-                        println!("[ALICE] Received: {}", text);
+                        println!("[USV] Received: {}", text);
                     }
                     Err(_) => {
                         log_send(esp_now, b"Decrypt failed");
