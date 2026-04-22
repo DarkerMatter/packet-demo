@@ -234,6 +234,11 @@ fn main() -> ! {
 
         // --- Receive ESP-NOW ---
         if let Some(received) = esp_now.receive() {
+            println!("[USV] RX {} bytes from {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                received.data().len(),
+                received.info.src_address[0], received.info.src_address[1],
+                received.info.src_address[2], received.info.src_address[3],
+                received.info.src_address[4], received.info.src_address[5]);
             if let Some(f) = Frame::decode(received.data()) {
                 match reassembler.feed(&f, tick) {
                     ReassemblyResult::Complete(msg_type, data) => {

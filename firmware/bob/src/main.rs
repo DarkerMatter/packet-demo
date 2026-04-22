@@ -37,7 +37,7 @@ impl rand_core::RngCore for EspCryptoRng {
 }
 impl rand_core::CryptoRng for EspCryptoRng {}
 
-const PREKEY_BROADCAST_INTERVAL: u32 = 3000;
+const PREKEY_BROADCAST_INTERVAL: u32 = 300_000; // ~3 seconds with spin loop
 
 #[derive(Clone, Copy, PartialEq)]
 enum LedState {
@@ -109,7 +109,7 @@ fn main() -> ! {
     let mut led_state = LedState::Idle;
     let mut led_on = false;
     let mut tick: u32 = 0;
-    let mut last_broadcast_tick: u32 = 0;
+    let mut last_broadcast_tick: u32 = u32::MAX - PREKEY_BROADCAST_INTERVAL; // trigger first broadcast immediately
     let mut touch_blinks_left: u32 = 0;
     let mut touch_blink_tick: u32 = 0;
 
@@ -188,9 +188,16 @@ fn main() -> ! {
             && tick.wrapping_sub(last_broadcast_tick) >= PREKEY_BROADCAST_INTERVAL
         {
             let frames = frame::fragment(wire::MSG_PREKEY_BUNDLE, next_msg_id(), &bundle_encoded);
-            for f in frames.iter() {
+            println!("[GND] Sending prekey bundle ({} fragments)...", frames.len());
+            for (i, f) in frames.iter().enumerate() {
                 let raw = f.encode();
-                let _ = esp_now.send(&BROADCAST_ADDRESS, &raw).map(|w| w.wait());
+                match esp_now.send(&BROADCAST_ADDRESS, &raw) {
+                    Ok(waiter) => match waiter.wait() {
+                        Ok(()) => {}
+                        Err(e) => println!("[GND] Send frag {} wait error: {:?}", i, e),
+                    },
+                    Err(e) => println!("[GND] Send frag {} error: {:?}", i, e),
+                }
             }
             last_broadcast_tick = tick;
         }
