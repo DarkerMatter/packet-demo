@@ -4,19 +4,40 @@
 use esp_hal::{
     clock::CpuClock,
     gpio::{Level, Output, OutputConfig},
+    interrupt::software::SoftwareInterruptControl,
     rng::Rng,
     timer::timg::TimerGroup,
 };
+use esp_backtrace as _;
+esp_bootloader_esp_idf::esp_app_desc!();
 use esp_println::println;
-use esp_wifi::esp_now::{EspNow, BROADCAST_ADDRESS};
+use esp_radio::esp_now::{EspNow, BROADCAST_ADDRESS};
 use pqxdh_shared::{
-    frame::{self, Frame, Reassembler, ReassemblyResult, DecodedMessage},
+    frame::{self, DecodedMessage, Frame, Reassembler, ReassemblyResult},
     pqxdh::{BobIdentity, BobSession, HandshakeMode},
     wire,
 };
 
-// LED: GPIO2 (D0) — change if your board's LED is on a different pin
-const PREKEY_BROADCAST_INTERVAL: u32 = 3000; // broadcast every ~3 seconds
+/// Wrapper around esp-hal Rng that implements CryptoRng for rand_core 0.6.
+struct EspCryptoRng(Rng);
+
+impl rand_core::RngCore for EspCryptoRng {
+    fn next_u32(&mut self) -> u32 {
+        <Rng as rand_core::RngCore>::next_u32(&mut self.0)
+    }
+    fn next_u64(&mut self) -> u64 {
+        <Rng as rand_core::RngCore>::next_u64(&mut self.0)
+    }
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        <Rng as rand_core::RngCore>::fill_bytes(&mut self.0, dest)
+    }
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        <Rng as rand_core::RngCore>::try_fill_bytes(&mut self.0, dest)
+    }
+}
+impl rand_core::CryptoRng for EspCryptoRng {}
+
+const PREKEY_BROADCAST_INTERVAL: u32 = 3000;
 
 #[derive(Clone, Copy, PartialEq)]
 enum LedState {
@@ -45,20 +66,25 @@ fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
+    // Init RTOS scheduler
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    let mut rng = Rng::new(peripherals.RNG);
-    let init = esp_wifi::init(timg0.timer0, Rng::new(peripherals.RNG), peripherals.RADIO_CLK)
-        .expect("WiFi init failed");
+    let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    esp_rtos::start(timg0.timer0, sw_ints.software_interrupt0);
 
-    let (_wifi_ctrl, interfaces) = esp_wifi::wifi::new(&init, peripherals.WIFI)
-        .expect("WiFi new failed");
+    // Init radio + ESP-NOW
+    let mut rng = EspCryptoRng(Rng::new());
+    let radio_ctrl = esp_radio::init().expect("Radio init failed");
+    let (_wifi_ctrl, interfaces) =
+        esp_radio::wifi::new(&radio_ctrl, peripherals.WIFI, Default::default())
+            .expect("WiFi new failed");
     let mut esp_now = interfaces.esp_now;
 
-    // Print MAC address
-    let mut mac = [0u8; 6];
-    esp_wifi::wifi::sta_mac(&mut mac);
-    println!("[BOB] MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    // Print MAC
+    let mac = esp_radio::wifi::sta_mac();
+    println!(
+        "[BOB] MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+    );
 
     // LED on GPIO2
     let mut led = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
@@ -87,34 +113,40 @@ fn main() -> ! {
         match led_state {
             LedState::Idle => {
                 let phase = tick % 1000;
-                if phase < 200 {
-                    if !led_on { led.set_high(); led_on = true; }
-                } else {
-                    if led_on { led.set_low(); led_on = false; }
+                if phase < 200 && !led_on {
+                    led.set_high();
+                    led_on = true;
+                } else if phase >= 200 && led_on {
+                    led.set_low();
+                    led_on = false;
                 }
             }
             LedState::Handshaking => {
                 let phase = tick % 125;
-                if phase < 62 {
-                    if !led_on { led.set_high(); led_on = true; }
-                } else {
-                    if led_on { led.set_low(); led_on = false; }
+                if phase < 62 && !led_on {
+                    led.set_high();
+                    led_on = true;
+                } else if phase >= 62 && led_on {
+                    led.set_low();
+                    led_on = false;
                 }
             }
             LedState::Established => {
-                if !led_on { led.set_high(); led_on = true; }
+                if !led_on {
+                    led.set_high();
+                    led_on = true;
+                }
             }
             LedState::TouchFlash => {
                 if touch_blinks_left > 0 {
                     let phase = tick.wrapping_sub(touch_blink_tick) % 50;
-                    if phase < 25 {
-                        if !led_on { led.set_high(); led_on = true; }
-                    } else {
-                        if led_on {
-                            led.set_low();
-                            led_on = false;
-                            touch_blinks_left -= 1;
-                        }
+                    if phase < 25 && !led_on {
+                        led.set_high();
+                        led_on = true;
+                    } else if phase >= 25 && led_on {
+                        led.set_low();
+                        led_on = false;
+                        touch_blinks_left -= 1;
                     }
                 } else {
                     led_state = LedState::Established;
@@ -122,17 +154,29 @@ fn main() -> ! {
             }
             LedState::Error => {
                 let phase = tick % 3000;
-                let sos = matches!(phase,
-                    0..=99 | 200..=299 | 400..=499 |
-                    700..=1099 | 1300..=1699 | 1900..=2299 |
-                    2500..=2599 | 2700..=2799 | 2900..=2999
+                let on = matches!(
+                    phase,
+                    0..=99
+                        | 200..=299
+                        | 400..=499
+                        | 700..=1099
+                        | 1300..=1699
+                        | 1900..=2299
+                        | 2500..=2599
+                        | 2700..=2799
+                        | 2900..=2999
                 );
-                if sos { if !led_on { led.set_high(); led_on = true; } }
-                else { if led_on { led.set_low(); led_on = false; } }
+                if on && !led_on {
+                    led.set_high();
+                    led_on = true;
+                } else if !on && led_on {
+                    led.set_low();
+                    led_on = false;
+                }
             }
         }
 
-        // --- Periodically broadcast prekey bundle (before handshake) ---
+        // --- Broadcast prekey bundle periodically ---
         if matches!(state, AppState::WaitingForAlice)
             && tick.wrapping_sub(last_broadcast_tick) >= PREKEY_BROADCAST_INTERVAL
         {
@@ -144,10 +188,10 @@ fn main() -> ! {
             last_broadcast_tick = tick;
         }
 
-        // --- Receive ESP-NOW frames ---
+        // --- Receive ESP-NOW ---
         if let Some(received) = esp_now.receive() {
-            if let Some(frame) = Frame::decode(received.data()) {
-                match reassembler.feed(&frame, tick) {
+            if let Some(f) = Frame::decode(received.data()) {
+                match reassembler.feed(&f, tick) {
                     ReassemblyResult::Complete(msg_type, data) => {
                         match DecodedMessage::from_reassembled(msg_type, &data) {
                             Ok(DecodedMessage::InitialMessage(msg)) => {
@@ -160,14 +204,16 @@ fn main() -> ! {
                                         Ok((session, plaintext)) => {
                                             let text = core::str::from_utf8(&plaintext)
                                                 .unwrap_or("<binary>");
-                                            println!("[BOB] Handshake complete! Initial payload: {}", text);
+                                            println!("[BOB] Handshake complete! Payload: {}", text);
 
                                             if msg.mode == HandshakeMode::ClassicalOnly {
                                                 println!("[BOB] Mode: CLASSICAL ONLY (X25519)");
-                                                println!("[EVE] Recorded handshake. Will decrypt in 2034 \u{1f60f}");
+                                                println!("[EVE] Recorded handshake. Will decrypt in 2034.");
                                             } else {
                                                 println!("[BOB] Mode: HYBRID (X25519 + ML-KEM-768)");
-                                                println!("[EVE] Recorded handshake. Cannot decrypt \u{2620}\u{fe0f} (quantum-resistant)");
+                                                println!(
+                                                    "[EVE] Recorded handshake. Cannot decrypt (quantum-resistant)."
+                                                );
                                             }
 
                                             state = AppState::SessionEstablished(session);
@@ -222,30 +268,23 @@ fn main() -> ! {
                                 }
                             }
                             Ok(DecodedMessage::LogRelay(relay)) => {
-                                // Print Alice's relayed logs
+                                // Print Alice's relayed logs via USB serial
                                 let text = core::str::from_utf8(&relay.message)
                                     .unwrap_or("<invalid utf8>");
                                 println!("[ALICE] {}", text);
                             }
-                            Ok(_) => {} // Ignore own prekey broadcasts etc.
+                            Ok(_) => {}
                             Err(_) => {}
                         }
                     }
-                    ReassemblyResult::Incomplete => {}
-                    ReassemblyResult::Dropped => {}
+                    _ => {}
                 }
             }
         }
 
-        // Tiny delay
-        for _ in 0..1000 { core::hint::spin_loop(); }
-    }
-}
-
-#[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    println!("[BOB] PANIC: {}", info);
-    loop {
-        core::hint::spin_loop();
+        // Brief spin
+        for _ in 0..1000 {
+            core::hint::spin_loop();
+        }
     }
 }
