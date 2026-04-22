@@ -27,14 +27,13 @@ async fn main(_spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, sw_ints.software_interrupt0);
 
-    let radio_ctrl = esp_radio::init().expect("Radio init failed");
-    let (_wifi_ctrl, interfaces) =
-        esp_radio::wifi::new(&radio_ctrl, peripherals.WIFI, Default::default())
-            .expect("WiFi new failed");
+    let (_controller, interfaces) =
+        esp_radio::wifi::new(peripherals.WIFI, Default::default()).unwrap();
     let mut esp_now = interfaces.esp_now;
+    esp_now.set_channel(1).unwrap();
 
-    let mac = esp_radio::wifi::sta_mac();
-    println!("ESP-NOW ASYNC TEST - BOB");
+    let mac = interfaces.station.mac_address();
+    println!("ESP-NOW TEST - BOB");
     println!("MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     println!("Version: {:?}", esp_now.version());
@@ -51,10 +50,8 @@ async fn main(_spawner: Spawner) -> ! {
             let data = r.data();
             let src = r.info.src_address;
             println!("RX #{} from {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} len={} data={:02x?}",
-                rx_count,
-                src[0], src[1], src[2], src[3], src[4], src[5],
-                data.len(),
-                &data[..data.len().min(16)]);
+                rx_count, src[0], src[1], src[2], src[3], src[4], src[5],
+                data.len(), &data[..data.len().min(16)]);
         }).await;
 
         match res {
