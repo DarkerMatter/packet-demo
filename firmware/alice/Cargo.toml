@@ -1,0 +1,7 @@
+[package]
+name = "pqxdh-alice"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pqxdh-shared = { path = "../shared" }

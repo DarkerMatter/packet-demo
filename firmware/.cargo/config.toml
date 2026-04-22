@@ -1,0 +1,10 @@
+[build]
+# Default target for the binary crates (alice, bob).
+# The shared crate uses --features std for host testing.
+# target = "riscv32imc-unknown-none-elf"
+
+[target.riscv32imc-unknown-none-elf]
+runner = "espflash flash --monitor"
+
+[env]
+ESP_LOG = "info"
