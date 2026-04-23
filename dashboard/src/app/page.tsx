@@ -83,7 +83,7 @@ export default function Home() {
     let reconnectTimer: ReturnType<typeof setTimeout>;
 
     function connect() {
-      ws = new WebSocket(`ws://${window.location.host}/ws`);
+      ws = new WebSocket(`ws://${window.location.hostname}:3001`);
       ws.onopen = () => setConnected(true);
       ws.onclose = () => {
         setConnected(false);
@@ -113,6 +113,18 @@ export default function Home() {
       logEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [logs]);
+
+  // Keyboard trigger: Space or Enter sends a ping
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.code === "Space" || e.code === "Enter") {
+        e.preventDefault();
+        fetch("/api/ping", { method: "POST" });
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -228,6 +240,19 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Send Ping Button */}
+        {state.handshakeState === "established" && (
+          <div className="mt-4 flex items-center gap-4">
+            <button
+              onClick={() => fetch("/api/ping", { method: "POST" })}
+              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors"
+            >
+              Send Encrypted Ping
+            </button>
+            <span className="text-zinc-500 text-sm">or press Space / Enter</span>
+          </div>
+        )}
 
         {/* Log Feed */}
         <Card className="mt-6 bg-zinc-900 border-zinc-800">
