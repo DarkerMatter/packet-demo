@@ -29,10 +29,48 @@ const keyExchange = [];
 const logs = [];
 const clients = new Set();
 let sessionEstablished = false;
-let telemetryLat = 37.7749;
-let telemetryLon = -122.4194;
-let telemetryAlt = 15.0;
-let telemetryHeading = 0;
+// Ship state
+const ship = {
+  nav: { lat: 37.7749, lon: -122.4194, sog: 12.4, cog: 045, heading: 043, depth: 28.5, rudder: 2 },
+  thrusters: [
+    { id: "T1-PS-FWD", angle: 0, thrust: 85, reversed: false },
+    { id: "T2-SB-FWD", angle: 0, thrust: 87, reversed: false },
+    { id: "T3-PS-AFT", angle: -5, thrust: 82, reversed: false },
+    { id: "T4-SB-AFT", angle: 5, thrust: 80, reversed: false },
+    { id: "T5-CTR", angle: 0, thrust: 90, reversed: false },
+  ],
+  engines: [
+    { id: "ME1", rpm: 1850, temp: 185, oilPsi: 62, fuelFlow: 42 },
+    { id: "ME2", rpm: 1840, temp: 183, oilPsi: 64, fuelFlow: 41 },
+    { id: "ME3", rpm: 1855, temp: 187, oilPsi: 61, fuelFlow: 43 },
+    { id: "ME4", rpm: 1830, temp: 182, oilPsi: 63, fuelFlow: 40 },
+    { id: "ME5", rpm: 1845, temp: 186, oilPsi: 62, fuelFlow: 42 },
+  ],
+  transmissions: [
+    { id: "TX1", gear: "FWD", ratio: 2.5, temp: 165 },
+    { id: "TX2", gear: "FWD", ratio: 2.5, temp: 163 },
+    { id: "TX3", gear: "FWD", ratio: 2.5, temp: 167 },
+    { id: "TX4", gear: "FWD", ratio: 2.5, temp: 164 },
+    { id: "TX5", gear: "FWD", ratio: 2.5, temp: 166 },
+  ],
+  generators: [
+    { id: "GEN1", kw: 420, voltage: 480, hz: 60.0, fuelLevel: 87 },
+    { id: "GEN2", kw: 385, voltage: 479, hz: 60.0, fuelLevel: 87 },
+    { id: "GEN3", kw: 0, voltage: 0, hz: 0, fuelLevel: 87 },
+  ],
+  hvac: [
+    { id: "HVAC-FWD", zoneTemp: 72, setpoint: 72, mode: "AUTO" },
+    { id: "HVAC-AFT", zoneTemp: 74, setpoint: 72, mode: "COOL" },
+  ],
+  waste: { grayLevel: 34, blackLevel: 22, grayPump: "OFF", blackPump: "OFF" },
+  bowThruster: { angle: 0, thrust: 0 },
+  fire: { zones: [0,0,0,0,0,0], alarm: false, agentLevel: 98 },
+  radarContacts: [
+    { id: "R1", bearing: 45, range: 2.4, speed: 8, cpa: 0.8 },
+    { id: "R2", bearing: 178, range: 5.1, speed: 14, cpa: 3.2 },
+    { id: "R3", bearing: 290, range: 1.8, speed: 6, cpa: 1.1 },
+  ],
+};
 
 function ts() { return new Date().toISOString().slice(11, 23); }
 
@@ -147,47 +185,78 @@ async function runHandshake() {
   sessionEstablished = true;
 }
 
+function jitter(val, range) { return val + (Math.random() - 0.5) * range; }
+
+function evolveShip() {
+  const s = ship;
+  s.nav.lat += (Math.random() - 0.5) * 0.0005;
+  s.nav.lon += (Math.random() - 0.5) * 0.0005;
+  s.nav.sog = Math.max(0, jitter(s.nav.sog, 0.4));
+  s.nav.cog = (s.nav.cog + (Math.random() - 0.5) * 3 + 360) % 360;
+  s.nav.heading = (s.nav.heading + (Math.random() - 0.5) * 2 + 360) % 360;
+  s.nav.depth = Math.max(5, jitter(s.nav.depth, 1));
+  s.nav.rudder = Math.max(-35, Math.min(35, jitter(s.nav.rudder, 2)));
+
+  for (const t of s.thrusters) {
+    t.thrust = Math.max(0, Math.min(100, jitter(t.thrust, 3)));
+    t.angle = Math.max(-15, Math.min(15, jitter(t.angle, 1)));
+  }
+  for (const e of s.engines) {
+    e.rpm = Math.max(0, Math.round(jitter(e.rpm, 20)));
+    e.temp = Math.round(jitter(e.temp, 2));
+    e.oilPsi = Math.round(jitter(e.oilPsi, 2));
+    e.fuelFlow = Math.max(0, Math.round(jitter(e.fuelFlow, 2)));
+  }
+  for (const t of s.transmissions) {
+    t.temp = Math.round(jitter(t.temp, 1));
+  }
+  for (const g of s.generators) {
+    if (g.kw > 0) {
+      g.kw = Math.max(0, Math.round(jitter(g.kw, 10)));
+      g.voltage = Math.round(jitter(g.voltage, 1));
+      g.hz = Math.round(jitter(g.hz * 10, 1)) / 10;
+    }
+    g.fuelLevel = Math.max(0, +(g.fuelLevel - 0.02).toFixed(1));
+  }
+  for (const h of s.hvac) {
+    h.zoneTemp = Math.round(jitter(h.zoneTemp, 0.5));
+  }
+  s.waste.grayLevel = Math.min(100, +(s.waste.grayLevel + Math.random() * 0.3).toFixed(1));
+  s.waste.blackLevel = Math.min(100, +(s.waste.blackLevel + Math.random() * 0.2).toFixed(1));
+
+  for (const r of s.radarContacts) {
+    r.bearing = Math.round((r.bearing + (Math.random() - 0.5) * 3 + 360) % 360);
+    r.range = Math.max(0.1, +(r.range + (Math.random() - 0.5) * 0.3).toFixed(1));
+    r.speed = Math.max(0, +(r.speed + (Math.random() - 0.5) * 0.5).toFixed(1));
+    r.cpa = Math.max(0, +(r.cpa + (Math.random() - 0.5) * 0.1).toFixed(1));
+  }
+}
+
 async function sendPing() {
   if (!sessionEstablished) return;
 
-  // Simulate USV telemetry
-  telemetryLat += (Math.random() - 0.5) * 0.001;
-  telemetryLon += (Math.random() - 0.5) * 0.001;
-  telemetryAlt += (Math.random() - 0.5) * 2;
-  telemetryHeading = (telemetryHeading + Math.random() * 10) % 360;
-  const battery = Math.max(0, 100 - state.pingCount * 0.3).toFixed(1);
-  const speed = (2 + Math.random() * 3).toFixed(1);
-
-  const telemetry = {
-    lat: telemetryLat.toFixed(6),
-    lon: telemetryLon.toFixed(6),
-    alt: telemetryAlt.toFixed(1),
-    hdg: telemetryHeading.toFixed(0),
-    spd: speed,
-    bat: battery,
-    ts: Date.now(),
-  };
-  const plaintext = JSON.stringify(telemetry);
+  evolveShip();
+  const plaintext = JSON.stringify(ship);
+  const plaintextBytes = Buffer.byteLength(plaintext);
 
   state.pingCount++;
-  const ct = randomBytes(plaintext.length + 16);
-  addLog("usv", `[USV] Telemetry: lat=${telemetry.lat} lon=${telemetry.lon} alt=${telemetry.alt}m hdg=${telemetry.hdg}° spd=${telemetry.spd}kn bat=${telemetry.bat}%`);
-  addLog("usv", `[USV] Encrypting ${plaintext.length} bytes (counter: ${state.pingCount})`);
-  addLog("usv", `[USV] Ciphertext: ${hexDump(ct, 24)}...`);
-  addLog("eve", `[EVE] Intercepted ${ct.length} bytes: ${hexDump(ct, 20)}...`);
-  addLog("eve", `[EVE] Cannot determine: position, heading, speed, or battery level`);
+  const ct = randomBytes(plaintextBytes + 16);
+
+  addLog("usv", `[USV] Telemetry frame #${state.pingCount}: ${plaintextBytes} bytes plaintext`);
+  addLog("usv", `[USV] Nav: ${ship.nav.lat.toFixed(4)}N ${Math.abs(ship.nav.lon).toFixed(4)}W SOG:${ship.nav.sog.toFixed(1)}kn HDG:${ship.nav.heading.toFixed(0)}°`);
+  addLog("usv", `[USV] Encrypting with ChaCha20-Poly1305 (nonce: ${state.pingCount})`);
+  addLog("usv", `[USV] Ciphertext: ${hexDump(ct, 28)}...`);
+  addLog("eve", `[EVE] Intercepted ${ct.length} bytes: ${hexDump(ct, 24)}...`);
   broadcast({ type: "state", state });
-  broadcast({ type: "telemetry", ...telemetry, ciphertext: hexDump(ct, 32) });
+  broadcast({ type: "ship", ship, ciphertext: hexDump(ct, 40) });
 
-  await sleep(100);
-  addLog("gnd", `[GND] Received ${ct.length} encrypted bytes`);
-  addLog("gnd", `[GND] Decrypted telemetry: lat=${telemetry.lat} lon=${telemetry.lon} alt=${telemetry.alt}m`);
+  await sleep(80);
+  addLog("gnd", `[GND] Received ${ct.length} encrypted bytes -> decrypted ${plaintextBytes} bytes`);
+  addLog("gnd", `[GND] Nav: ${ship.nav.lat.toFixed(4)}N ${Math.abs(ship.nav.lon).toFixed(4)}W | Engines: ${ship.engines.map(e=>e.rpm).join("/")} RPM`);
 
-  await sleep(50);
   state.pongCount++;
   const ack = randomBytes(24);
-  addLog("gnd", `[GND] ACK -> ${hexDump(ack, 12)}...`);
-  addLog("usv", `[USV] ACK received`);
+  addLog("gnd", `[GND] ACK #${state.pongCount} -> ${hexDump(ack, 12)}...`);
   broadcast({ type: "state", state });
 }
 
