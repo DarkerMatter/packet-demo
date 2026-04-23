@@ -30,8 +30,7 @@ fn main() {
     let nvs = EspDefaultNvsPartition::take().unwrap();
 
     // Touch sensor on GPIO10
-    let mut button = PinDriver::input(peripherals.pins.gpio10).unwrap();
-    button.set_pull(Pull::Down).unwrap();
+    let button = PinDriver::input(peripherals.pins.gpio10, Pull::Down).unwrap();
 
     let mut wifi = BlockingWifi::wrap(
         EspWifi::new(peripherals.modem, sysloop.clone(), Some(nvs)).unwrap(),
