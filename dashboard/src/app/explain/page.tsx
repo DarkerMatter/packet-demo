@@ -36,7 +36,7 @@ function Tag({ color, children }: { color: string; children: React.ReactNode }) 
 
 export default function ExplainPage() {
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-mono">
       <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">

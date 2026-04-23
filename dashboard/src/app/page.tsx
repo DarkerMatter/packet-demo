@@ -2,14 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
 interface LogEntry { ts: string; source: string; text: string }
 interface KeyStep { ts: string; source: string; text: string }
 interface ShipData {
-  nav: { lat: number; lon: number; sog: number; cog: number; heading: number; depth: number; rudder: number };
+  nav: { lat: number; lon: number; sog: number; cog: number; heading: number; depth: number };
   thrusters: { id: string; angle: number; thrust: number; reversed: boolean }[];
   engines: { id: string; rpm: number; temp: number; oilPsi: number; fuelFlow: number }[];
   transmissions: { id: string; gear: string; ratio: number; temp: number }[];
@@ -23,194 +22,214 @@ interface ShipData {
 interface DemoState {
   usvConnected: boolean; gndConnected: boolean;
   handshakeState: string; handshakeMode: string;
-  pingCount: number; pongCount: number;
-  lastActivity: string;
+  pingCount: number; pongCount: number; lastActivity: string;
 }
-
 const defaultState: DemoState = {
-  usvConnected: false, gndConnected: false,
-  handshakeState: "idle", handshakeMode: "unknown",
-  pingCount: 0, pongCount: 0, lastActivity: "",
+  usvConnected: false, gndConnected: false, handshakeState: "idle",
+  handshakeMode: "unknown", pingCount: 0, pongCount: 0, lastActivity: "",
 };
-
-function Dot({ on, color = "emerald", pulse = false }: { on: boolean; color?: string; pulse?: boolean }) {
-  return <span className={`inline-block h-2 w-2 rounded-full ${on ? `bg-${color}-400 shadow-sm shadow-${color}-400/50` : "bg-zinc-700"} ${pulse ? "animate-pulse" : ""}`} />;
-}
-
 const srcColor: Record<string, string> = {
   usv: "text-blue-400", gnd: "text-emerald-400", eve: "text-red-400 font-bold", system: "text-zinc-500",
 };
 
-// --- Ship SVG Diagram ---
-function ShipDiagram({ ship, ciphertext }: { ship: ShipData | null; ciphertext: string }) {
-  if (!ship) return <div className="flex items-center justify-center h-full text-zinc-600">Awaiting telemetry...</div>;
+// Color helper for temp ranges
+function tempColor(t: number, warn = 200, crit = 220) {
+  if (t >= crit) return "text-red-400";
+  if (t >= warn) return "text-amber-400";
+  return "text-zinc-300";
+}
+
+function ShipView({ ship }: { ship: ShipData | null }) {
+  if (!ship) return <div className="flex items-center justify-center h-full text-zinc-600 text-sm">Awaiting first telemetry frame...</div>;
   const s = ship;
 
+  // Each thruster line: thruster <- transmission <- engine
+  const driveLines = s.thrusters.map((t, i) => ({
+    thruster: t,
+    transmission: s.transmissions[i],
+    engine: s.engines[i],
+  }));
+
   return (
-    <div className="h-full flex flex-col text-[11px] overflow-y-auto pr-1">
-      {/* Nav Header */}
-      <div className="bg-zinc-800/50 rounded-lg p-3 mb-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Navigation</span>
-          <span className="text-emerald-400 text-[10px]">ACTIVE</span>
-        </div>
-        <div className="grid grid-cols-4 gap-2 text-center">
-          <div><p className="text-zinc-500">LAT</p><p className="text-zinc-100 font-mono">{s.nav.lat.toFixed(4)}N</p></div>
-          <div><p className="text-zinc-500">LON</p><p className="text-zinc-100 font-mono">{Math.abs(s.nav.lon).toFixed(4)}W</p></div>
-          <div><p className="text-zinc-500">SOG</p><p className="text-zinc-100 font-mono">{s.nav.sog.toFixed(1)} kn</p></div>
-          <div><p className="text-zinc-500">HDG</p><p className="text-zinc-100 font-mono">{s.nav.heading.toFixed(0)}°</p></div>
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-center mt-2">
-          <div><p className="text-zinc-500">COG</p><p className="text-zinc-100 font-mono">{s.nav.cog.toFixed(0)}°</p></div>
-          <div><p className="text-zinc-500">DEPTH</p><p className="text-zinc-100 font-mono">{s.nav.depth.toFixed(1)}m</p></div>
-          <div><p className="text-zinc-500">RUDDER</p><p className="text-zinc-100 font-mono">{s.nav.rudder.toFixed(0)}°</p></div>
+    <div className="h-full flex flex-col">
+      {/* Nav Bar */}
+      <div className="flex-shrink-0 bg-zinc-800/40 rounded-lg px-4 py-2.5 mb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <p className="text-[10px] text-zinc-500 uppercase">Position</p>
+              <p className="text-sm text-zinc-100 font-mono">{s.nav.lat.toFixed(4)}N {Math.abs(s.nav.lon).toFixed(4)}W</p>
+            </div>
+            <Separator orientation="vertical" className="h-8 bg-zinc-700" />
+            <div className="text-center">
+              <p className="text-[10px] text-zinc-500 uppercase">SOG</p>
+              <p className="text-lg text-zinc-100 font-mono font-bold">{s.nav.sog.toFixed(1)}<span className="text-xs text-zinc-500 ml-0.5">kn</span></p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-zinc-500 uppercase">COG</p>
+              <p className="text-lg text-zinc-100 font-mono font-bold">{s.nav.cog.toFixed(0)}<span className="text-xs text-zinc-500">°</span></p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-zinc-500 uppercase">HDG</p>
+              <p className="text-lg text-zinc-100 font-mono font-bold">{s.nav.heading.toFixed(0)}<span className="text-xs text-zinc-500">°</span></p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-zinc-500 uppercase">Depth</p>
+              <p className="text-lg text-zinc-100 font-mono font-bold">{s.nav.depth.toFixed(1)}<span className="text-xs text-zinc-500 ml-0.5">m</span></p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 text-[10px]">
+            {s.generators.map(g => (
+              <div key={g.id} className={`text-center px-2 py-1 rounded ${g.kw > 0 ? "bg-purple-950/40 border border-purple-800/30" : "bg-zinc-800/50 border border-zinc-700/30"}`}>
+                <p className="text-zinc-500">{g.id}</p>
+                <p className={g.kw > 0 ? "text-purple-400 font-mono" : "text-zinc-600 font-mono"}>{g.kw > 0 ? `${g.kw}kW` : "OFF"}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Ship Top-Down SVG */}
-      <div className="bg-zinc-800/50 rounded-lg p-3 mb-3">
-        <svg viewBox="0 0 200 400" className="w-full max-w-[180px] mx-auto" style={{ height: 220 }}>
-          {/* Hull */}
-          <path d="M100,20 L140,60 L145,180 L140,300 L130,360 L100,380 L70,360 L60,300 L55,180 L60,60 Z"
-            fill="none" stroke="#3f3f46" strokeWidth="2" />
-          <path d="M100,20 L140,60 L145,180 L140,300 L130,360 L100,380 L70,360 L60,300 L55,180 L60,60 Z"
-            fill="#18181b" opacity="0.5" />
-          {/* Center line */}
-          <line x1="100" y1="30" x2="100" y2="370" stroke="#27272a" strokeWidth="1" strokeDasharray="4,4" />
+      {/* Ship Body - SVG + Drive Lines */}
+      <div className="flex-1 flex items-center justify-center overflow-hidden">
+        <svg viewBox="0 0 800 580" className="w-full h-full max-h-full" preserveAspectRatio="xMidYMid meet">
+          {/* Hull outline */}
+          <path d="M400,30 L490,70 L505,200 L505,420 L485,510 L400,540 L315,510 L295,420 L295,200 L310,70 Z"
+            fill="#0f0f17" stroke="#2a2a3a" strokeWidth="1.5" />
+          {/* Deck lines */}
+          <line x1="400" y1="40" x2="400" y2="530" stroke="#1a1a2a" strokeWidth="0.5" strokeDasharray="3,6" />
+          <ellipse cx="400" cy="130" rx="75" ry="15" fill="none" stroke="#1a1a2a" strokeWidth="0.5" />
+          <text x="400" y="134" textAnchor="middle" fill="#333" fontSize="8">BRIDGE</text>
+          <text x="400" y="24" textAnchor="middle" fill="#444" fontSize="9" fontWeight="bold">BOW</text>
+          <text x="400" y="562" textAnchor="middle" fill="#444" fontSize="9" fontWeight="bold">STERN</text>
 
-          {/* Bow label */}
-          <text x="100" y="14" textAnchor="middle" fill="#52525b" fontSize="8">BOW</text>
-          <text x="100" y="396" textAnchor="middle" fill="#52525b" fontSize="8">STERN</text>
+          {/* Bow Thruster */}
+          <rect x="345" y="60" width="110" height="18" rx="3" fill="#111" stroke="#333" strokeWidth="0.5" />
+          <text x="400" y="72" textAnchor="middle" fill="#555" fontSize="7">BOW THRUSTER</text>
 
-          {/* Bow thruster */}
-          <rect x="75" y="48" width="50" height="12" rx="2" fill="#1e1e2e" stroke="#4a4a5a" strokeWidth="0.5" />
-          <text x="100" y="57" textAnchor="middle" fill="#71717a" fontSize="7">BOW THR</text>
-
-          {/* Forward thrusters T1 (PS) T2 (SB) */}
-          {[{ x: 65, t: s.thrusters[0] }, { x: 125, t: s.thrusters[1] }].map((d, i) => (
-            <g key={`ft${i}`}>
-              <rect x={d.x - 12} y="85" width="24" height="30" rx="2" fill={d.t.thrust > 50 ? "#1a2e1a" : "#1e1e2e"} stroke={d.t.thrust > 50 ? "#4ade80" : "#4a4a5a"} strokeWidth="0.5" />
-              <text x={d.x} y="96" textAnchor="middle" fill="#a1a1aa" fontSize="6">{d.t.id.split("-")[0]}</text>
-              <text x={d.x} y="108" textAnchor="middle" fill={d.t.thrust > 50 ? "#4ade80" : "#71717a"} fontSize="7">{d.t.thrust.toFixed(0)}%</text>
-            </g>
-          ))}
-
-          {/* Engines E1-E5 in engine room */}
-          {s.engines.map((e, i) => {
-            const x = 70 + i * 15;
-            const y = 190;
-            return (
-              <g key={e.id}>
-                <rect x={x - 6} y={y} width="12" height="20" rx="1" fill={e.rpm > 0 ? "#1a1a2e" : "#1e1e1e"} stroke={e.rpm > 0 ? "#60a5fa" : "#333"} strokeWidth="0.5" />
-                <text x={x} y={y + 8} textAnchor="middle" fill="#71717a" fontSize="5">{e.id}</text>
-                <text x={x} y={y + 16} textAnchor="middle" fill={e.rpm > 0 ? "#60a5fa" : "#444"} fontSize="5">{e.rpm}</text>
+          {/* Fire suppression zones across midship */}
+          <g>
+            <text x="400" y="165" textAnchor="middle" fill="#444" fontSize="7">FIRE ZONES</text>
+            {s.fire.zones.map((z, i) => (
+              <g key={`fz${i}`}>
+                <circle cx={355 + i * 18} cy="175" r="5" fill={z > 0 ? "#ef4444" : "#1a1a1a"} stroke={z > 0 ? "#f87171" : "#2a2a2a"} strokeWidth="0.5" />
+                <text x={355 + i * 18} y="178" textAnchor="middle" fill={z > 0 ? "#fff" : "#333"} fontSize="5">{i + 1}</text>
               </g>
-            );
-          })}
-          <text x="100" y="185" textAnchor="middle" fill="#52525b" fontSize="6">ENGINE ROOM</text>
+            ))}
+            <text x="470" y="178" fill="#444" fontSize="7">Agent: {s.fire.agentLevel}%</text>
+          </g>
 
-          {/* Generators */}
-          {s.generators.map((g, i) => {
-            const x = 78 + i * 22;
+          {/* HVAC */}
+          {s.hvac.map((h, i) => {
+            const y = 195 + i * 22;
             return (
-              <g key={g.id}>
-                <rect x={x - 8} y="240" width="16" height="16" rx="1" fill={g.kw > 0 ? "#2e1a2e" : "#1e1e1e"} stroke={g.kw > 0 ? "#c084fc" : "#333"} strokeWidth="0.5" />
-                <text x={x} y="250" textAnchor="middle" fill={g.kw > 0 ? "#c084fc" : "#444"} fontSize="5">{g.id.replace("GEN","G")}</text>
-                <text x={x} y="258" textAnchor="middle" fill={g.kw > 0 ? "#c084fc" : "#444"} fontSize="4">{g.kw}kW</text>
+              <g key={h.id}>
+                <rect x="310" y={y} width="180" height="18" rx="2" fill="#0d1117" stroke="#1e3a4a" strokeWidth="0.5" />
+                <text x="320" y={y + 12} fill="#06b6d4" fontSize="7">{h.id}</text>
+                <text x="415" y={y + 12} fill="#67e8f9" fontSize="7" fontFamily="monospace">{h.zoneTemp}°F / {h.setpoint}°F</text>
+                <text x="480" y={y + 12} fill="#555" fontSize="6">{h.mode}</text>
               </g>
             );
           })}
 
-          {/* Aft thrusters T3 (PS) T4 (SB) T5 (CTR) */}
-          {[{ x: 68, t: s.thrusters[2] }, { x: 100, t: s.thrusters[4] }, { x: 132, t: s.thrusters[3] }].map((d, i) => (
-            <g key={`at${i}`}>
-              <rect x={d.x - 10} y="310" width="20" height="26" rx="2" fill={d.t.thrust > 50 ? "#1a2e1a" : "#1e1e2e"} stroke={d.t.thrust > 50 ? "#4ade80" : "#4a4a5a"} strokeWidth="0.5" />
-              <text x={d.x} y="320" textAnchor="middle" fill="#a1a1aa" fontSize="5">{d.t.id.split("-")[0]}</text>
-              <text x={d.x} y="330" textAnchor="middle" fill={d.t.thrust > 50 ? "#4ade80" : "#71717a"} fontSize="6">{d.t.thrust.toFixed(0)}%</text>
-            </g>
-          ))}
+          {/* Waste */}
+          <g>
+            <rect x="320" y="245" width="80" height="18" rx="2" fill="#0d1117" stroke="#854d0e44" strokeWidth="0.5" />
+            <text x="325" y="257" fill="#a16207" fontSize="7">GRAY {s.waste.grayLevel.toFixed(0)}%</text>
+            <rect x="405" y="245" width="80" height="18" rx="2" fill="#0d1117" stroke="#854d0e44" strokeWidth="0.5" />
+            <text x="410" y="257" fill="#a16207" fontSize="7">BLACK {s.waste.blackLevel.toFixed(0)}%</text>
+          </g>
 
-          {/* Fire zones */}
-          {s.fire.zones.map((z, i) => (
-            <circle key={`fire${i}`} cx={72 + i * 12} cy="280" r="3" fill={z > 0 ? "#ef4444" : "#1a1a1a"} stroke={z > 0 ? "#ef4444" : "#333"} strokeWidth="0.5" />
-          ))}
-          <text x="100" y="276" textAnchor="middle" fill="#52525b" fontSize="5">FIRE ZONES</text>
+          {/* ===== DRIVE TRAINS ===== */}
+          {/* Layout: 2 forward (PS/SB at y~300), center (y~340), 2 aft (PS/SB at y~380) */}
+          {(() => {
+            const positions = [
+              { x: 335, y: 280, label: "PS FWD" },  // T1
+              { x: 465, y: 280, label: "SB FWD" },  // T2
+              { x: 335, y: 355, label: "PS AFT" },  // T3
+              { x: 465, y: 355, label: "SB AFT" },  // T4
+              { x: 400, y: 430, label: "CENTER" },   // T5
+            ];
+            return positions.map((pos, i) => {
+              const dl = driveLines[i];
+              if (!dl) return null;
+              const { thruster: t, transmission: tx, engine: e } = dl;
+              const isCenter = i === 4;
+              const w = isCenter ? 120 : 100;
+              const left = pos.x - w / 2;
+
+              return (
+                <g key={`drive${i}`}>
+                  {/* Drive train box */}
+                  <rect x={left} y={pos.y} width={w} height={isCenter ? 55 : 65} rx="3"
+                    fill="#0a0a14" stroke={t.thrust > 50 ? "#22c55e33" : "#222"} strokeWidth="0.8" />
+
+                  {/* Thruster */}
+                  <text x={pos.x} y={pos.y + 10} textAnchor="middle" fill="#4ade80" fontSize="7" fontWeight="bold">
+                    JET {pos.label}
+                  </text>
+                  <text x={left + 4} y={pos.y + 22} fill="#888" fontSize="6">Thrust</text>
+                  <text x={left + w - 4} y={pos.y + 22} textAnchor="end" fill="#4ade80" fontSize="7" fontFamily="monospace">
+                    {t.thrust.toFixed(0)}%
+                  </text>
+                  <text x={left + 4} y={pos.y + 31} fill="#888" fontSize="6">Angle</text>
+                  <text x={left + w - 4} y={pos.y + 31} textAnchor="end" fill="#60a5fa" fontSize="7" fontFamily="monospace">
+                    {t.angle.toFixed(1)}°
+                  </text>
+
+                  {/* Transmission */}
+                  <text x={left + 4} y={pos.y + 41} fill="#888" fontSize="6">Trans</text>
+                  <text x={left + w - 4} y={pos.y + 41} textAnchor="end" fontSize="7" fontFamily="monospace"
+                    className={tempColor(tx.temp, 170, 190)}>
+                    <tspan fill={tx.temp >= 190 ? "#f87171" : tx.temp >= 170 ? "#fbbf24" : "#a78bfa"}>{tx.gear} {tx.temp}°F</tspan>
+                  </text>
+
+                  {/* Engine */}
+                  <text x={left + 4} y={pos.y + 51} fill="#888" fontSize="6">Engine</text>
+                  <text x={left + w - 4} y={pos.y + 51} textAnchor="end" fontSize="7" fontFamily="monospace">
+                    <tspan fill="#60a5fa">{e.rpm}rpm</tspan>
+                  </text>
+                  {!isCenter && (
+                    <>
+                      <text x={left + 4} y={pos.y + 60} fill="#888" fontSize="6">Eng Temp</text>
+                      <text x={left + w - 4} y={pos.y + 60} textAnchor="end" fontSize="7" fontFamily="monospace">
+                        <tspan fill={e.temp >= 210 ? "#f87171" : e.temp >= 195 ? "#fbbf24" : "#60a5fa"}>{e.temp}°F</tspan>
+                      </text>
+                    </>
+                  )}
+
+                  {/* Thrust indicator arrow */}
+                  {t.thrust > 10 && (
+                    <line
+                      x1={pos.x} y1={pos.y - 2}
+                      x2={pos.x + Math.sin(t.angle * Math.PI / 180) * 15}
+                      y2={pos.y - 2 - Math.cos(t.angle * Math.PI / 180) * (t.thrust / 100 * 15)}
+                      stroke="#4ade80" strokeWidth="1.5" markerEnd="none" opacity={0.6}
+                    />
+                  )}
+                </g>
+              );
+            });
+          })()}
+
+          {/* Engine Room label */}
+          <text x="400" y="282" textAnchor="middle" fill="#333" fontSize="8" fontWeight="bold">ENGINE ROOM</text>
         </svg>
       </div>
 
-      {/* Systems Grid */}
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        {/* Engines Summary */}
-        <div className="bg-zinc-800/50 rounded-lg p-2">
-          <p className="text-zinc-500 text-[10px] uppercase mb-1">Engines</p>
-          {s.engines.map(e => (
-            <div key={e.id} className="flex justify-between text-[10px]">
-              <span className="text-zinc-500">{e.id}</span>
-              <span className="text-blue-400 font-mono">{e.rpm}rpm {e.temp}°F</span>
+      {/* Radar bar */}
+      <div className="flex-shrink-0 bg-zinc-800/40 rounded-lg px-4 py-2 mt-3">
+        <div className="flex items-center justify-center gap-6">
+          <span className="text-[10px] text-zinc-500 uppercase font-semibold">Radar</span>
+          {s.radarContacts.map(r => (
+            <div key={r.id} className={`flex items-center gap-2 text-[11px] font-mono ${r.cpa < 1 ? "text-red-400" : "text-yellow-300"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${r.cpa < 1 ? "bg-red-400 animate-pulse" : "bg-yellow-400"}`} />
+              <span>{r.bearing}°/{r.range}nm</span>
+              <span className="text-zinc-500">{r.speed}kn</span>
+              <span className={r.cpa < 1 ? "text-red-400 font-bold" : "text-zinc-400"}>CPA {r.cpa}nm</span>
             </div>
           ))}
-        </div>
-        {/* Generators */}
-        <div className="bg-zinc-800/50 rounded-lg p-2">
-          <p className="text-zinc-500 text-[10px] uppercase mb-1">Generators</p>
-          {s.generators.map(g => (
-            <div key={g.id} className="flex justify-between text-[10px]">
-              <span className="text-zinc-500">{g.id}</span>
-              <span className={`font-mono ${g.kw > 0 ? "text-purple-400" : "text-zinc-600"}`}>{g.kw > 0 ? `${g.kw}kW ${g.voltage}V` : "OFF"}</span>
-            </div>
-          ))}
-        </div>
-        {/* HVAC */}
-        <div className="bg-zinc-800/50 rounded-lg p-2">
-          <p className="text-zinc-500 text-[10px] uppercase mb-1">HVAC</p>
-          {s.hvac.map(h => (
-            <div key={h.id} className="flex justify-between text-[10px]">
-              <span className="text-zinc-500">{h.id.replace("HVAC-","")}</span>
-              <span className="text-cyan-400 font-mono">{h.zoneTemp}°F/{h.setpoint}°F {h.mode}</span>
-            </div>
-          ))}
-        </div>
-        {/* Waste */}
-        <div className="bg-zinc-800/50 rounded-lg p-2">
-          <p className="text-zinc-500 text-[10px] uppercase mb-1">Waste Systems</p>
-          <div className="flex justify-between text-[10px]">
-            <span className="text-zinc-500">Gray</span>
-            <span className="text-amber-400 font-mono">{s.waste.grayLevel.toFixed(0)}%</span>
-          </div>
-          <div className="flex justify-between text-[10px]">
-            <span className="text-zinc-500">Black</span>
-            <span className="text-amber-400 font-mono">{s.waste.blackLevel.toFixed(0)}%</span>
-          </div>
-          <div className="flex justify-between text-[10px]">
-            <span className="text-zinc-500">Fire Agent</span>
-            <span className="text-emerald-400 font-mono">{s.fire.agentLevel}%</span>
-          </div>
         </div>
       </div>
-
-      {/* Radar Contacts */}
-      <div className="bg-zinc-800/50 rounded-lg p-2 mb-3">
-        <p className="text-zinc-500 text-[10px] uppercase mb-1">Radar Contacts</p>
-        <div className="grid grid-cols-4 text-[9px] text-zinc-600 mb-0.5">
-          <span>ID</span><span>BRG/RNG</span><span>SPD</span><span>CPA</span>
-        </div>
-        {s.radarContacts.map(r => (
-          <div key={r.id} className="grid grid-cols-4 text-[10px]">
-            <span className={`font-mono ${r.cpa < 1 ? "text-red-400" : "text-yellow-400"}`}>{r.id}</span>
-            <span className="text-zinc-300 font-mono">{r.bearing}°/{r.range}nm</span>
-            <span className="text-zinc-300 font-mono">{r.speed}kn</span>
-            <span className={`font-mono ${r.cpa < 1 ? "text-red-400" : "text-zinc-300"}`}>{r.cpa}nm</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Eve's encrypted view */}
-      {ciphertext && (
-        <div className="bg-red-950/20 border border-red-900/30 rounded-lg p-2">
-          <p className="text-red-400 text-[10px] uppercase mb-1">Eve sees:</p>
-          <p className="text-red-300/40 text-[9px] font-mono break-all leading-tight">{ciphertext}</p>
-        </div>
-      )}
     </div>
   );
 }
@@ -224,11 +243,10 @@ export default function Home() {
   const [connected, setConnected] = useState(false);
   const [showKeyExchange, setShowKeyExchange] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
-  const logContainerRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let ws: WebSocket;
-    let timer: ReturnType<typeof setTimeout>;
+    let ws: WebSocket; let timer: ReturnType<typeof setTimeout>;
     function connect() {
       ws = new WebSocket(`ws://${window.location.hostname}:3001`);
       ws.onopen = () => setConnected(true);
@@ -236,10 +254,7 @@ export default function Home() {
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === "state") setState(msg.state);
-        if (msg.type === "log") setLogs(prev => {
-          const next = [...prev, { ts: msg.ts, source: msg.source, text: msg.text }];
-          return next.length > 500 ? next.slice(-500) : next;
-        });
+        if (msg.type === "log") setLogs(p => { const n = [...p, msg]; return n.length > 500 ? n.slice(-500) : n; });
         if (msg.type === "keyexchange") setKeySteps(msg.steps);
         if (msg.type === "ship") { setShip(msg.ship); setCiphertext(msg.ciphertext); }
       };
@@ -248,54 +263,35 @@ export default function Home() {
     return () => { clearTimeout(timer); ws?.close(); };
   }, []);
 
-  useEffect(() => {
-    const el = logContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [logs]);
+  useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; }, [logs, keySteps]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.code === "Space" || e.code === "Enter") && !e.repeat) {
-        e.preventDefault();
-        fetch("/api/ping", { method: "POST" });
-      }
+    const h = (e: KeyboardEvent) => {
+      if ((e.code === "Space" || e.code === "Enter") && !e.repeat) { e.preventDefault(); fetch("/api/ping", { method: "POST" }); }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
   }, []);
-
-  const hsLabels: Record<string, string> = {
-    idle: "Idle", waiting: "Waiting", bundle_sent: "Bundle Sent",
-    handshaking: "Handshaking...", established: "Established", failed: "Failed",
-  };
 
   return (
     <div className="h-screen bg-zinc-950 text-zinc-100 font-mono flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-sm flex-shrink-0">
-        <div className="px-6 py-3 flex items-center justify-between">
+      <header className="border-b border-zinc-800 bg-zinc-900/50 flex-shrink-0">
+        <div className="px-5 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold tracking-tight">
-              <span className="text-indigo-400">PQXDH</span> USV Demo
-            </h1>
-            <Link href="/explain" className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
-              How it works &rarr;
-            </Link>
+            <h1 className="text-base font-semibold"><span className="text-indigo-400">PQXDH</span> USV Telemetry</h1>
+            <Link href="/explain" className="text-[10px] text-indigo-400 hover:text-indigo-300">How it works &rarr;</Link>
           </div>
-          <div className="flex items-center gap-4 text-xs">
-            <div className="flex items-center gap-4">
-              <span className={`flex items-center gap-1.5 ${state.usvConnected ? "text-blue-400" : "text-zinc-600"}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${state.usvConnected ? "bg-blue-400" : "bg-zinc-700"}`} /> USV
-              </span>
-              <span className={`flex items-center gap-1.5 ${state.gndConnected ? "text-emerald-400" : "text-zinc-600"}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${state.gndConnected ? "bg-emerald-400" : "bg-zinc-700"}`} /> GND
-              </span>
-            </div>
-            <Separator orientation="vertical" className="h-4 bg-zinc-700" />
-            <span className="text-zinc-500">{hsLabels[state.handshakeState]}</span>
-            {state.handshakeMode === "hybrid" && <Badge variant="outline" className="text-[10px] border-emerald-800 text-emerald-400">ML-KEM-768</Badge>}
-            <Separator orientation="vertical" className="h-4 bg-zinc-700" />
-            <span className="text-zinc-600">TX:{state.pingCount} RX:{state.pongCount}</span>
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className={state.usvConnected ? "text-blue-400" : "text-zinc-600"}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full mr-1 ${state.usvConnected ? "bg-blue-400" : "bg-zinc-700"}`} />USV
+            </span>
+            <span className={state.gndConnected ? "text-emerald-400" : "text-zinc-600"}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full mr-1 ${state.gndConnected ? "bg-emerald-400" : "bg-zinc-700"}`} />GND
+            </span>
+            <Separator orientation="vertical" className="h-3.5 bg-zinc-700" />
+            {state.handshakeMode === "hybrid" && <Badge variant="outline" className="text-[9px] border-emerald-800 text-emerald-400 py-0">QUANTUM-RESISTANT</Badge>}
+            <span className="text-zinc-600">TX:{state.pingCount}</span>
             <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-red-400 animate-pulse"}`} />
           </div>
         </div>
@@ -303,63 +299,52 @@ export default function Home() {
 
       {/* Main Split */}
       <div className="flex-1 flex overflow-hidden">
-        {/* LEFT: Logs + Controls */}
-        <div className="w-1/2 border-r border-zinc-800 flex flex-col">
-          {/* Controls */}
-          <div className="px-4 py-2 border-b border-zinc-800 flex items-center gap-3 flex-shrink-0">
-            {state.handshakeState === "established" && (
+        {/* LEFT: Ship */}
+        <div className="flex-1 p-3 overflow-hidden">
+          <ShipView ship={ship} />
+        </div>
+
+        {/* RIGHT: Log + Controls */}
+        <div className="w-[500px] border-l border-zinc-800 flex flex-col flex-shrink-0">
+          <div className="px-3 py-2 border-b border-zinc-800 flex items-center gap-2 flex-shrink-0">
+            {state.handshakeState === "established" ? (
               <>
-                <button
-                  onClick={() => fetch("/api/ping", { method: "POST" })}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded transition-colors"
-                >
+                <button onClick={() => fetch("/api/ping", { method: "POST" })}
+                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-medium rounded transition-colors">
                   Send Telemetry
                 </button>
-                <span className="text-zinc-600 text-[10px]">or Space</span>
+                <span className="text-zinc-600 text-[9px]">Space</span>
               </>
+            ) : (
+              <span className="text-zinc-500 text-[10px]">Waiting for handshake...</span>
             )}
-            <div className="ml-auto">
-              <button
-                onClick={() => setShowKeyExchange(!showKeyExchange)}
-                className="px-3 py-1.5 text-[10px] font-medium text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800 transition-colors"
-              >
-                {showKeyExchange ? "Show Live Log" : "Key Exchange"}
-              </button>
-            </div>
+            <button onClick={() => setShowKeyExchange(!showKeyExchange)}
+              className="ml-auto px-2 py-1 text-[9px] text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800 transition-colors">
+              {showKeyExchange ? "Live Log" : "Key Exchange"}
+            </button>
           </div>
 
-          {/* Log or Key Exchange */}
-          <div ref={logContainerRef} className="flex-1 overflow-y-auto px-4 py-2">
-            {showKeyExchange ? (
-              keySteps.length === 0 ? (
-                <p className="text-zinc-600 text-sm mt-4">Waiting for handshake...</p>
-              ) : (
-                keySteps.map((step, i) => (
-                  <div key={i} className="py-0.5 text-[12px] leading-relaxed">
-                    <span className="text-zinc-600 mr-2">{step.ts}</span>
-                    <span className={srcColor[step.source] || "text-zinc-400"}>{step.text}</span>
-                  </div>
-                ))
-              )
+          {/* Eve intercept */}
+          {ciphertext && (
+            <div className="px-3 py-2 border-b border-red-900/30 bg-red-950/10 flex-shrink-0">
+              <p className="text-[9px] text-red-400 uppercase font-semibold mb-0.5">Eve intercept</p>
+              <p className="text-[9px] text-red-300/30 font-mono break-all leading-tight">{ciphertext}</p>
+            </div>
+          )}
+
+          <div ref={logRef} className="flex-1 overflow-y-auto px-3 py-2">
+            {(showKeyExchange ? keySteps : logs).length === 0 ? (
+              <p className="text-zinc-600 text-xs mt-2">Waiting...</p>
             ) : (
-              logs.length === 0 ? (
-                <p className="text-zinc-600 text-sm mt-4">Waiting for data...</p>
-              ) : (
-                logs.map((entry, i) => (
-                  <div key={i} className="py-0.5 text-[12px] leading-relaxed">
-                    <span className="text-zinc-600 mr-2">{entry.ts}</span>
-                    <span className={srcColor[entry.source] || "text-zinc-400"}>{entry.text}</span>
-                  </div>
-                ))
-              )
+              (showKeyExchange ? keySteps : logs).map((e, i) => (
+                <div key={i} className="py-px text-[11px] leading-relaxed">
+                  <span className="text-zinc-700 mr-1.5">{e.ts}</span>
+                  <span className={srcColor[e.source] || "text-zinc-400"}>{e.text}</span>
+                </div>
+              ))
             )}
             <div ref={logEndRef} />
           </div>
-        </div>
-
-        {/* RIGHT: Ship Diagram */}
-        <div className="w-1/2 p-4 overflow-hidden">
-          <ShipDiagram ship={ship} ciphertext={ciphertext} />
         </div>
       </div>
     </div>

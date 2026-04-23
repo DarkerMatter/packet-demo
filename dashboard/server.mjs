@@ -31,7 +31,7 @@ const clients = new Set();
 let sessionEstablished = false;
 // Ship state
 const ship = {
-  nav: { lat: 37.7749, lon: -122.4194, sog: 12.4, cog: 45, heading: 43, depth: 28.5, rudder: 2 },
+  nav: { lat: 37.7749, lon: -122.4194, sog: 12.4, cog: 45, heading: 43, depth: 28.5 },
   thrusters: [
     { id: "T1-PS-FWD", angle: 0, thrust: 85, reversed: false },
     { id: "T2-SB-FWD", angle: 0, thrust: 87, reversed: false },
@@ -195,7 +195,6 @@ function evolveShip() {
   s.nav.cog = (s.nav.cog + (Math.random() - 0.5) * 3 + 360) % 360;
   s.nav.heading = (s.nav.heading + (Math.random() - 0.5) * 2 + 360) % 360;
   s.nav.depth = Math.max(5, jitter(s.nav.depth, 1));
-  s.nav.rudder = Math.max(-35, Math.min(35, jitter(s.nav.rudder, 2)));
 
   for (const t of s.thrusters) {
     t.thrust = Math.max(0, Math.min(100, jitter(t.thrust, 3)));
