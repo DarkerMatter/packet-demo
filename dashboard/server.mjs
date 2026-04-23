@@ -31,7 +31,7 @@ const clients = new Set();
 let sessionEstablished = false;
 // Ship state
 const ship = {
-  nav: { lat: 37.7749, lon: -122.4194, sog: 12.4, cog: 045, heading: 043, depth: 28.5, rudder: 2 },
+  nav: { lat: 37.7749, lon: -122.4194, sog: 12.4, cog: 45, heading: 43, depth: 28.5, rudder: 2 },
   thrusters: [
     { id: "T1-PS-FWD", angle: 0, thrust: 85, reversed: false },
     { id: "T2-SB-FWD", angle: 0, thrust: 87, reversed: false },
