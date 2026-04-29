@@ -103,19 +103,26 @@ function ShipView({ ship }: { ship: ShipData | null }) {
           <text x="400" y="562" textAnchor="middle" fill="#444" fontSize="9" fontWeight="bold">STERN</text>
 
           {/* Bow Thruster */}
-          <rect x="345" y="60" width="110" height="18" rx="3" fill="#111" stroke="#333" strokeWidth="0.5" />
-          <text x="400" y="72" textAnchor="middle" fill="#555" fontSize="7">BOW THRUSTER</text>
+          <rect x="330" y="55" width="140" height="28" rx="3" fill="#0a0a14" stroke={s.bowThruster.thrust > 0 ? "#22c55e33" : "#333"} strokeWidth="0.8" />
+          <text x="400" y="67" textAnchor="middle" fill="#4ade80" fontSize="7" fontWeight="bold">BOW THRUSTER</text>
+          <text x="360" y="78" textAnchor="middle" fill="#888" fontSize="6">Thrust</text>
+          <text x="390" y="78" fill="#4ade80" fontSize="7" fontFamily="monospace">{s.bowThruster.thrust.toFixed(0)}%</text>
+          <text x="420" y="78" fill="#888" fontSize="6">Angle</text>
+          <text x="452" y="78" fill="#60a5fa" fontSize="7" fontFamily="monospace">{s.bowThruster.angle.toFixed(0)}°</text>
 
-          {/* Fire suppression zones across midship */}
+          {/* Fire suppression zones */}
           <g>
-            <text x="400" y="165" textAnchor="middle" fill="#444" fontSize="7">FIRE ZONES</text>
+            <rect x="320" y="155" width="160" height="34" rx="3" fill="#0a0a14" stroke={s.fire.alarm ? "#ef444444" : "#222"} strokeWidth="0.8" />
+            <text x="400" y="166" textAnchor="middle" fill={s.fire.alarm ? "#ef4444" : "#555"} fontSize="7" fontWeight="bold">
+              FIRE SUPPRESSION {s.fire.alarm ? "⚠ ALARM" : ""}
+            </text>
             {s.fire.zones.map((z, i) => (
               <g key={`fz${i}`}>
-                <circle cx={355 + i * 18} cy="175" r="5" fill={z > 0 ? "#ef4444" : "#1a1a1a"} stroke={z > 0 ? "#f87171" : "#2a2a2a"} strokeWidth="0.5" />
-                <text x={355 + i * 18} y="178" textAnchor="middle" fill={z > 0 ? "#fff" : "#333"} fontSize="5">{i + 1}</text>
+                <circle cx={342 + i * 16} cy="178" r="5" fill={z > 0 ? "#ef4444" : "#111"} stroke={z > 0 ? "#f87171" : "#2a2a2a"} strokeWidth="0.5" />
+                <text x={342 + i * 16} y="181" textAnchor="middle" fill={z > 0 ? "#fff" : "#444"} fontSize="5">{i + 1}</text>
               </g>
             ))}
-            <text x="470" y="178" fill="#444" fontSize="7">Agent: {s.fire.agentLevel}%</text>
+            <text x="435" y="181" fill="#555" fontSize="6">Agent: <tspan fill={s.fire.agentLevel < 50 ? "#fbbf24" : "#4ade80"}>{s.fire.agentLevel}%</tspan></text>
           </g>
 
           {/* HVAC */}
@@ -305,7 +312,7 @@ export default function Home() {
         </div>
 
         {/* RIGHT: Log + Controls */}
-        <div className="w-[500px] border-l border-zinc-800 flex flex-col flex-shrink-0">
+        <div className="w-[600px] border-l border-zinc-800 flex flex-col flex-shrink-0">
           <div className="px-3 py-2 border-b border-zinc-800 flex items-center gap-2 flex-shrink-0">
             {state.handshakeState === "established" ? (
               <>
@@ -318,10 +325,16 @@ export default function Home() {
             ) : (
               <span className="text-zinc-500 text-[10px]">Waiting for handshake...</span>
             )}
-            <button onClick={() => setShowKeyExchange(!showKeyExchange)}
-              className="ml-auto px-2 py-1 text-[9px] text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800 transition-colors">
-              {showKeyExchange ? "Live Log" : "Key Exchange"}
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => setShowKeyExchange(!showKeyExchange)}
+                className="px-2 py-1 text-[9px] text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800 transition-colors">
+                {showKeyExchange ? "Live Log" : "Key Exchange"}
+              </button>
+              <button onClick={() => { fetch("/api/reset", { method: "POST" }); setLogs([]); setKeySteps([]); setShip(null); setCiphertext(""); }}
+                className="px-2 py-1 text-[9px] text-red-400 border border-red-800 rounded hover:bg-red-950 transition-colors">
+                Reset Demo
+              </button>
+            </div>
           </div>
 
           {/* Eve intercept */}

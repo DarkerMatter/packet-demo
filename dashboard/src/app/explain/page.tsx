@@ -232,6 +232,62 @@ export default function ExplainPage() {
 
         <Separator className="bg-zinc-800" />
 
+        {/* Packet Sizes */}
+        <Card className="bg-zinc-900 border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-lg">What Actually Goes Over the Wire</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-zinc-400 space-y-4 leading-relaxed">
+            <p>
+              Every piece of data has a concrete size. Here&apos;s what a single telemetry exchange looks like:
+            </p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between bg-zinc-950 rounded px-3 py-2">
+                <span className="text-zinc-300">Prekey Bundle (handshake, sent once)</span>
+                <span className="text-indigo-400 font-mono font-bold">1,440 bytes</span>
+              </div>
+              <div className="bg-zinc-950 rounded px-3 py-2 space-y-1 text-xs">
+                <div className="flex justify-between"><span className="text-zinc-500">Ed25519 verify key</span><span className="text-zinc-400 font-mono">32 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">X25519 identity key</span><span className="text-zinc-400 font-mono">32 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">X25519 signed prekey + signature</span><span className="text-zinc-400 font-mono">96 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">ML-KEM-768 encapsulation key + signature</span><span className="text-zinc-400 font-mono">1,248 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">X25519 one-time prekey</span><span className="text-zinc-400 font-mono">32 B</span></div>
+              </div>
+              <div className="flex items-center justify-between bg-zinc-950 rounded px-3 py-2">
+                <span className="text-zinc-300">InitialMessage (handshake, sent once)</span>
+                <span className="text-indigo-400 font-mono font-bold">~1,284 bytes</span>
+              </div>
+              <div className="bg-zinc-950 rounded px-3 py-2 space-y-1 text-xs">
+                <div className="flex justify-between"><span className="text-zinc-500">Alice&apos;s X25519 identity + ephemeral keys</span><span className="text-zinc-400 font-mono">64 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">ML-KEM-768 ciphertext</span><span className="text-zinc-400 font-mono">1,088 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Mode + flags</span><span className="text-zinc-400 font-mono">4 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Encrypted initial payload + Poly1305 tag</span><span className="text-zinc-400 font-mono">~128 B</span></div>
+              </div>
+              <div className="flex items-center justify-between bg-zinc-950 rounded px-3 py-2">
+                <span className="text-zinc-300">Telemetry frame (every update)</span>
+                <span className="text-emerald-400 font-mono font-bold">~450 bytes</span>
+              </div>
+              <div className="bg-zinc-950 rounded px-3 py-2 space-y-1 text-xs">
+                <div className="flex justify-between"><span className="text-zinc-500">Plaintext (all ship systems JSON)</span><span className="text-zinc-400 font-mono">~420 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">ChaCha20-Poly1305 auth tag</span><span className="text-zinc-400 font-mono">16 B</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Counter nonce + direction AAD</span><span className="text-zinc-400 font-mono">~16 B</span></div>
+              </div>
+            </div>
+            <div className="bg-indigo-950/30 border border-indigo-900/50 rounded-lg p-4 text-sm">
+              <p className="text-indigo-300 font-medium">Overhead is minimal</p>
+              <p className="text-indigo-300/70 mt-1">
+                The handshake costs ~2,724 bytes total — paid once. After that, each telemetry frame adds
+                only 16 bytes of encryption overhead (the Poly1305 authentication tag). That&apos;s <strong>3.8%</strong> overhead
+                on a 420-byte payload. Full ship telemetry — 5 jets, 5 engines, 5 transmissions, 3 generators,
+                HVAC, waste, fire suppression, radar contacts, bow thrusters — all encrypted and authenticated
+                in a single ~450 byte packet.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Separator className="bg-zinc-800" />
+
         {/* What Eve Sees */}
         <Card className="bg-zinc-900 border-red-900/50">
           <CardHeader>

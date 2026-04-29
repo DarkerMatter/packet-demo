@@ -29,6 +29,7 @@ const keyExchange = [];
 const logs = [];
 const clients = new Set();
 let sessionEstablished = false;
+let handshakeRunning = false;
 // Ship state
 const ship = {
   nav: { lat: 37.7749, lon: -122.4194, sog: 12.4, cog: 45, heading: 43, depth: 28.5 },
@@ -101,6 +102,8 @@ function hexDump(buf, len = 32) {
 
 // Simulated PQXDH demo sequence
 async function runHandshake() {
+  if (handshakeRunning || sessionEstablished) return;
+  handshakeRunning = true;
   state.handshakeState = "waiting";
   broadcast({ type: "state", state });
 
@@ -183,6 +186,7 @@ async function runHandshake() {
   addLog("gnd", "[GND] Secure channel established. Awaiting telemetry...");
 
   sessionEstablished = true;
+  handshakeRunning = false;
 }
 
 function jitter(val, range) { return val + (Math.random() - 0.5) * range; }
@@ -210,6 +214,13 @@ function evolveShip() {
     t.temp = Math.round(jitter(t.temp, 1));
   }
   for (const g of s.generators) {
+    // GEN2 and GEN3 randomly toggle on/off
+    if (g.id === "GEN2" || g.id === "GEN3") {
+      if (Math.random() < 0.05) {
+        if (g.kw === 0) { g.kw = 350 + Math.round(Math.random() * 80); g.voltage = 480; g.hz = 60.0; }
+        else { g.kw = 0; g.voltage = 0; g.hz = 0; }
+      }
+    }
     if (g.kw > 0) {
       g.kw = Math.max(0, Math.round(jitter(g.kw, 10)));
       g.voltage = Math.round(jitter(g.voltage, 1));
@@ -218,10 +229,25 @@ function evolveShip() {
     g.fuelLevel = Math.max(0, +(g.fuelLevel - 0.02).toFixed(1));
   }
   for (const h of s.hvac) {
-    h.zoneTemp = Math.round(jitter(h.zoneTemp, 0.5));
+    h.zoneTemp = Math.round(jitter(h.zoneTemp, 1.5));
+    if (Math.random() < 0.03) h.setpoint = [68, 70, 72, 74, 76][Math.floor(Math.random() * 5)];
+    if (Math.random() < 0.04) h.mode = ["AUTO", "COOL", "HEAT", "FAN"][Math.floor(Math.random() * 4)];
   }
-  s.waste.grayLevel = Math.min(100, +(s.waste.grayLevel + Math.random() * 0.3).toFixed(1));
-  s.waste.blackLevel = Math.min(100, +(s.waste.blackLevel + Math.random() * 0.2).toFixed(1));
+  s.waste.grayLevel = Math.max(0, Math.min(100, jitter(s.waste.grayLevel, 3)));
+  s.waste.blackLevel = Math.max(0, Math.min(100, jitter(s.waste.blackLevel, 2)));
+  if (Math.random() < 0.04) s.waste.grayPump = s.waste.grayPump === "OFF" ? "ON" : "OFF";
+  if (Math.random() < 0.04) s.waste.blackPump = s.waste.blackPump === "OFF" ? "ON" : "OFF";
+
+  // Bow thruster
+  s.bowThruster.thrust = Math.max(0, Math.min(100, jitter(s.bowThruster.thrust, 5)));
+  s.bowThruster.angle = Math.max(-45, Math.min(45, jitter(s.bowThruster.angle, 3)));
+
+  // Fire zones - occasional random flicker for demo
+  for (let i = 0; i < s.fire.zones.length; i++) {
+    if (Math.random() < 0.02) s.fire.zones[i] = s.fire.zones[i] ? 0 : 1;
+  }
+  s.fire.alarm = s.fire.zones.some(z => z > 0);
+  s.fire.agentLevel = Math.max(0, +(s.fire.agentLevel - 0.01).toFixed(1));
 
   for (const r of s.radarContacts) {
     r.bearing = Math.round((r.bearing + (Math.random() - 0.5) * 3 + 360) % 360);
@@ -265,6 +291,33 @@ app.prepare().then(() => {
   const server = createServer((req, res) => {
     if (req.method === "POST" && req.url === "/api/ping") {
       sendPing();
+      res.writeHead(200, { "Access-Control-Allow-Origin": "*" });
+      res.end("ok");
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/reset") {
+      // Reset entire demo state
+      state.usvConnected = false;
+      state.gndConnected = false;
+      state.handshakeState = "idle";
+      state.handshakeMode = "unknown";
+      state.pingCount = 0;
+      state.pongCount = 0;
+      state.lastActivity = "";
+      sessionEstablished = false;
+      handshakeRunning = false;
+      keyExchange.length = 0;
+      logs.length = 0;
+      broadcast({ type: "state", state });
+      broadcast({ type: "keyexchange", steps: [] });
+      // Re-run handshake after brief pause
+      setTimeout(() => {
+        state.usvConnected = true;
+        state.gndConnected = true;
+        addLog("gnd", "[GND] Board connected");
+        addLog("usv", "[USV] Board connected");
+        runHandshake();
+      }, 500);
       res.writeHead(200, { "Access-Control-Allow-Origin": "*" });
       res.end("ok");
       return;
