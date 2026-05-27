@@ -4,3 +4,5 @@
 /firmware-idf/.embuild
 /firmware-idf/target
 .superpowers/
+.playwright-mcp/
+/*.png
