@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { TabNav } from "@/components/shell/tab-nav";
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -44,9 +45,7 @@ export default function ExplainPage() {
               <span className="text-indigo-400">PQXDH</span> Explained
             </h1>
           </div>
-          <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
-            &larr; Back to Dashboard
-          </Link>
+          <TabNav />
         </div>
       </header>
 
