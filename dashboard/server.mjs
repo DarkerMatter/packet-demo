@@ -4,6 +4,7 @@ import { WebSocketServer } from "ws";
 import { createServer } from "http";
 import { randomBytes } from "crypto";
 import next from "next";
+import { initialValves } from "./src/lib/valves/server-seed.mjs";
 
 const dev = process.env.NODE_ENV !== "production";
 const port = 3000;
@@ -73,6 +74,9 @@ const ship = {
   ],
 };
 
+let valves = initialValves();
+let scenarioRunning = null;
+
 function ts() { return new Date().toISOString().slice(11, 23); }
 
 function addLog(source, text, isKeyExchange = false) {
@@ -98,6 +102,27 @@ function broadcast(data) {
 
 function hexDump(buf, len = 32) {
   return Array.from(buf.slice(0, len)).map(b => b.toString(16).padStart(2, "0")).join(" ");
+}
+
+function applyValveChange(id, fields, source = "system") {
+  const v = valves[id];
+  if (!v) return;
+  Object.assign(v, fields);
+  // derive state from position when not provided
+  if (fields.position !== undefined && !fields.state) {
+    if (v.position <= 0) v.state = "closed";
+    else if (v.position >= 100) v.state = "open";
+    else v.state = "throttled";
+  }
+  broadcast({ type: "valves:patch", id, fields: { ...fields, position: v.position, state: v.state } });
+  // packet log triple
+  const ct = randomBytes(48);
+  state.pingCount++;
+  addLog("usv", `[USV] VALVE_CMD ${v.id} (${v.name}) -> ${v.state.toUpperCase()} ${v.position}%`);
+  addLog("eve", `[EVE] intercepted 48 bytes: ${hexDump(ct, 24)}...`);
+  const ack = randomBytes(16);
+  addLog("gnd", `[GND] ACK ${hexDump(ack, 8)}...`);
+  broadcast({ type: "state", state });
 }
 
 // Simulated PQXDH demo sequence
@@ -331,6 +356,7 @@ app.prepare().then(() => {
 
   wss.on("connection", (ws) => {
     clients.add(ws);
+    ws.send(JSON.stringify({ type: "valves:full", valves }));
     ws.send(JSON.stringify({ type: "state", state }));
     if (keyExchange.length) ws.send(JSON.stringify({ type: "keyexchange", steps: keyExchange }));
     for (const entry of logs.slice(-200)) {
