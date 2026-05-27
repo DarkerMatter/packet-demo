@@ -1,5 +1,5 @@
 // dashboard/src/components/pid/valve.tsx
-import type { Valve as ValveState, ValveKind, ValvePlacement } from "@/lib/valves/types";
+import type { Valve as ValveData, ValveKind, ValvePlacement } from "@/lib/valves/types";
 
 const stateFill = (state: string, position: number) => {
   if (state === "open") return "#22c55e";
@@ -10,9 +10,9 @@ const stateFill = (state: string, position: number) => {
 
 interface ValveProps {
   placement: ValvePlacement;
-  v: ValveState;
+  v: ValveData;
   enabled: boolean;
-  onClick: (v: ValveState) => void;
+  onClick: (v: ValveData) => void;
   hovered: boolean;
   onHover: (id: string | null) => void;
 }

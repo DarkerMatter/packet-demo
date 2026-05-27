@@ -8,22 +8,27 @@ import { TabNav } from "@/components/shell/tab-nav";
 import { RightRail } from "@/components/shell/right-rail";
 import { useDemoSocket } from "@/lib/use-demo-socket";
 import { systems, systemOrder } from "@/lib/valves";
-import type { SystemId, Valve as ValveState } from "@/lib/valves/types";
+import type { SystemId, Valve as ValveData } from "@/lib/valves/types";
 import { Tank } from "@/components/pid/tank";
 import { Pump } from "@/components/pid/pump";
 import { Pipe } from "@/components/pid/pipe";
 import { Valve } from "@/components/pid/valve";
 
-function systemStatus(sid: SystemId, valves: Record<string, ValveState>) {
+function systemStatus(sid: SystemId, valves: Record<string, ValveData>) {
   const ids = systems[sid].initialValves.map(v => v.id);
   const live = ids.map(id => valves[id]).filter(Boolean);
+  if (live.length === 0) return "unknown";
   if (live.some(v => v.fault)) return "fault";
   // amber if any throttled
   if (live.some(v => v.state === "throttled")) return "throttled";
   return "ok";
 }
 
-const statusDot = (s: string) => s === "fault" ? "bg-red-500" : s === "throttled" ? "bg-amber-400" : "bg-emerald-500";
+const statusDot = (s: string) =>
+  s === "fault" ? "bg-red-500" :
+  s === "throttled" ? "bg-amber-400" :
+  s === "unknown" ? "bg-zinc-600" :
+  "bg-emerald-500";
 
 const scenarioButtons = [
   { name: "fuel-transfer", label: "Fuel Transfer" },
@@ -55,7 +60,7 @@ export default function ValvesPage() {
     });
   }, [sys, valves]);
 
-  function handleValveClick(v: ValveState) {
+  function handleValveClick(v: ValveData) {
     if (!handshakeEstablished) return;
     if (v.kind === "check") return;
     if (v.kind === "globe") {
