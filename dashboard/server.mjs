@@ -76,6 +76,7 @@ const ship = {
 
 let valves = initialValves();
 let scenarioRunning = null;
+const scenarios = {};
 
 function ts() { return new Date().toISOString().slice(11, 23); }
 
@@ -314,6 +315,45 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
+    if (req.method === "POST" && req.url.startsWith("/api/valve/")) {
+      const id = req.url.slice("/api/valve/".length);
+      if (!valves[id]) { res.writeHead(404); res.end("unknown valve"); return; }
+      if (state.handshakeState !== "established") { res.writeHead(409); res.end("handshake not established"); return; }
+      let body = "";
+      req.on("data", c => body += c);
+      req.on("end", () => {
+        let parsed = {};
+        try { parsed = JSON.parse(body || "{}"); } catch { res.writeHead(400); res.end("bad json"); return; }
+        const fields = {};
+        if (typeof parsed.position === "number") fields.position = Math.max(0, Math.min(100, parsed.position));
+        if (parsed.state === "open" || parsed.state === "closed") {
+          fields.state = parsed.state;
+          fields.position = parsed.state === "open" ? 100 : 0;
+        }
+        applyValveChange(id, fields, "user");
+        res.writeHead(200, { "Access-Control-Allow-Origin": "*" }); res.end("ok");
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url.startsWith("/api/scenario/")) {
+      const name = req.url.slice("/api/scenario/".length);
+      if (scenarioRunning) { res.writeHead(409); res.end("scenario in flight"); return; }
+      if (state.handshakeState !== "established") { res.writeHead(409); res.end("handshake not established"); return; }
+      const fn = scenarios[name];
+      if (!fn) { res.writeHead(404); res.end("unknown scenario"); return; }
+      scenarioRunning = name;
+      broadcast({ type: "scenario", name, status: "started" });
+      fn().then(() => {
+        scenarioRunning = null;
+        broadcast({ type: "scenario", name, status: "ended" });
+      }).catch(e => {
+        console.error("scenario error:", e);
+        scenarioRunning = null;
+        broadcast({ type: "scenario", name, status: "ended" });
+      });
+      res.writeHead(202); res.end("started");
+      return;
+    }
     if (req.method === "POST" && req.url === "/api/ping") {
       sendPing();
       res.writeHead(200, { "Access-Control-Allow-Origin": "*" });
@@ -333,6 +373,9 @@ app.prepare().then(() => {
       handshakeRunning = false;
       keyExchange.length = 0;
       logs.length = 0;
+      valves = initialValves();
+      scenarioRunning = null;
+      broadcast({ type: "valves:full", valves });
       broadcast({ type: "state", state });
       broadcast({ type: "keyexchange", steps: [] });
       // Re-run handshake after brief pause
