@@ -283,6 +283,18 @@ function evolveShip() {
   }
 }
 
+function driftValve() {
+  if (scenarioRunning) return;
+  if (state.handshakeState !== "established") return;
+  const eligible = Object.values(valves).filter(v => v.kind === "globe" && v.state === "throttled");
+  if (!eligible.length) return;
+  const v = eligible[Math.floor(Math.random() * eligible.length)];
+  const delta = Math.round((Math.random() - 0.5) * 20); // -10..+10
+  const newPos = Math.max(5, Math.min(95, v.position + delta));
+  if (newPos === v.position) return;
+  applyValveChange(v.id, { position: newPos }, "drift");
+}
+
 async function sendPing() {
   if (!sessionEstablished) return;
 
@@ -494,4 +506,10 @@ app.prepare().then(() => {
       });
     }
   });
+
+  function scheduleDrift() {
+    const delay = 4000 + Math.random() * 4000;
+    setTimeout(() => { driftValve(); scheduleDrift(); }, delay);
+  }
+  scheduleDrift();
 });
