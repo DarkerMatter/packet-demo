@@ -76,7 +76,69 @@ const ship = {
 
 let valves = initialValves();
 let scenarioRunning = null;
-const scenarios = {};
+const scenarios = {
+  "fuel-transfer": async () => {
+    addLog("usv", "[USV] SCENARIO: fuel transfer starting");
+    await sleep(400);
+    applyValveChange("FV-105", { state: "open", position: 100 });
+    await sleep(800);
+    addLog("usv", "[USV] Transfer pump ON");
+    await sleep(6000);
+    addLog("usv", "[USV] Transfer pump OFF");
+    await sleep(400);
+    applyValveChange("FV-105", { state: "closed", position: 0 });
+    addLog("usv", "[USV] SCENARIO: fuel transfer complete");
+  },
+  "engine-start": async () => {
+    addLog("usv", "[USV] SCENARIO: ME1 start sequence");
+    await sleep(400);
+    applyValveChange("LO-302", { state: "open", position: 100 });
+    addLog("usv", "[USV] Prelube pump ON");
+    await sleep(1500);
+    applyValveChange("FV-108", { state: "open", position: 100 }); // already open, but issues the packet
+    await sleep(800);
+    applyValveChange("AIR-704", { state: "open", position: 100 });
+    addLog("usv", "[USV] ME1 cranking...");
+    await sleep(2000);
+    addLog("usv", "[USV] ME1 running");
+    applyValveChange("AIR-704", { state: "closed", position: 0 });
+    await sleep(500);
+    applyValveChange("LO-302", { state: "closed", position: 0 });
+    addLog("usv", "[USV] SCENARIO: engine start complete");
+  },
+  "fire-drill": async () => {
+    addLog("usv", "[USV] SCENARIO: fire drill — zone 2 alarm");
+    state.lastActivity = ts();
+    // Set a fire zone via the existing ship object
+    if (ship && ship.fire) { ship.fire.zones[1] = 1; ship.fire.alarm = true; broadcast({ type: "ship", ship, ciphertext: "" }); }
+    await sleep(500);
+    addLog("gnd", "[GND] Alarm received. Isolating fuel supplies.");
+    for (const id of ["FV-108", "FV-109", "FV-110", "FV-111", "FV-112"]) {
+      applyValveChange(id, { state: "closed", position: 0 });
+      await sleep(300);
+    }
+    await sleep(600);
+    addLog("gnd", "[GND] Activating fire main.");
+    applyValveChange("FM-603", { state: "open", position: 100 });
+    await sleep(800);
+    addLog("usv", "[USV] SCENARIO: fire drill complete (manual reset required)");
+    if (ship && ship.fire) { ship.fire.zones[1] = 0; ship.fire.alarm = false; broadcast({ type: "ship", ship, ciphertext: "" }); }
+  },
+  "bilge-pumpout": async () => {
+    addLog("usv", "[USV] SCENARIO: bilge pump-out");
+    await sleep(400);
+    applyValveChange("BL-501", { state: "open", position: 100 });
+    await sleep(400);
+    applyValveChange("BL-505", { state: "open", position: 100 });
+    addLog("usv", "[USV] Bilge pump ON");
+    await sleep(4000);
+    addLog("usv", "[USV] Bilge pump OFF");
+    applyValveChange("BL-501", { state: "closed", position: 0 });
+    await sleep(400);
+    applyValveChange("BL-505", { state: "closed", position: 0 });
+    addLog("usv", "[USV] SCENARIO: bilge pump-out complete");
+  },
+};
 
 function ts() { return new Date().toISOString().slice(11, 23); }
 
