@@ -1,36 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-
-interface LogEntry { ts: string; source: string; text: string }
-interface KeyStep { ts: string; source: string; text: string }
-interface ShipData {
-  nav: { lat: number; lon: number; sog: number; cog: number; heading: number; depth: number };
-  thrusters: { id: string; angle: number; thrust: number; reversed: boolean }[];
-  engines: { id: string; rpm: number; temp: number; oilPsi: number; fuelFlow: number }[];
-  transmissions: { id: string; gear: string; ratio: number; temp: number }[];
-  generators: { id: string; kw: number; voltage: number; hz: number; fuelLevel: number }[];
-  hvac: { id: string; zoneTemp: number; setpoint: number; mode: string }[];
-  waste: { grayLevel: number; blackLevel: number; grayPump: string; blackPump: string };
-  bowThruster: { angle: number; thrust: number };
-  fire: { zones: number[]; alarm: boolean; agentLevel: number };
-  radarContacts: { id: string; bearing: number; range: number; speed: number; cpa: number }[];
-}
-interface DemoState {
-  usvConnected: boolean; gndConnected: boolean;
-  handshakeState: string; handshakeMode: string;
-  pingCount: number; pongCount: number; lastActivity: string;
-}
-const defaultState: DemoState = {
-  usvConnected: false, gndConnected: false, handshakeState: "idle",
-  handshakeMode: "unknown", pingCount: 0, pongCount: 0, lastActivity: "",
-};
-const srcColor: Record<string, string> = {
-  usv: "text-blue-400", gnd: "text-emerald-400", eve: "text-red-400 font-bold", system: "text-zinc-500",
-};
+import { TabNav } from "@/components/shell/tab-nav";
+import { RightRail } from "@/components/shell/right-rail";
+import { useDemoSocket, ShipData } from "@/lib/use-demo-socket";
 
 // Color helper for temp ranges
 function tempColor(t: number, warn = 200, crit = 220) {
@@ -242,123 +217,67 @@ function ShipView({ ship }: { ship: ShipData | null }) {
 }
 
 export default function Home() {
-  const [state, setState] = useState<DemoState>(defaultState);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [keySteps, setKeySteps] = useState<KeyStep[]>([]);
-  const [ship, setShip] = useState<ShipData | null>(null);
-  const [ciphertext, setCiphertext] = useState("");
-  const [connected, setConnected] = useState(false);
-  const [showKeyExchange, setShowKeyExchange] = useState(false);
-  const logEndRef = useRef<HTMLDivElement>(null);
-  const logRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let ws: WebSocket; let timer: ReturnType<typeof setTimeout>;
-    function connect() {
-      ws = new WebSocket(`ws://${window.location.hostname}:3001`);
-      ws.onopen = () => setConnected(true);
-      ws.onclose = () => { setConnected(false); timer = setTimeout(connect, 2000); };
-      ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data);
-        if (msg.type === "state") setState(msg.state);
-        if (msg.type === "log") setLogs(p => { const n = [...p, msg]; return n.length > 500 ? n.slice(-500) : n; });
-        if (msg.type === "keyexchange") setKeySteps(msg.steps);
-        if (msg.type === "ship") { setShip(msg.ship); setCiphertext(msg.ciphertext); }
-      };
-    }
-    connect();
-    return () => { clearTimeout(timer); ws?.close(); };
-  }, []);
-
-  useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; }, [logs, keySteps]);
+  const sock = useDemoSocket();
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.code === "Space" || e.code === "Enter") && !e.repeat) { e.preventDefault(); fetch("/api/ping", { method: "POST" }); }
+      if ((e.code === "Space" || e.code === "Enter") && !e.repeat) {
+        e.preventDefault();
+        fetch("/api/ping", { method: "POST" });
+      }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  const handshakeEstablished = sock.state.handshakeState === "established";
+
   return (
     <div className="h-screen bg-zinc-950 text-zinc-100 font-mono flex flex-col overflow-hidden">
-      {/* Header */}
       <header className="border-b border-zinc-800 bg-zinc-900/50 flex-shrink-0">
         <div className="px-5 py-2.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <h1 className="text-base font-semibold"><span className="text-indigo-400">PQXDH</span> USV Telemetry</h1>
-            <Link href="/explain" className="text-[10px] text-indigo-400 hover:text-indigo-300">How it works &rarr;</Link>
+            <TabNav />
           </div>
           <div className="flex items-center gap-3 text-[11px]">
-            <span className={state.usvConnected ? "text-blue-400" : "text-zinc-600"}>
-              <span className={`inline-block h-1.5 w-1.5 rounded-full mr-1 ${state.usvConnected ? "bg-blue-400" : "bg-zinc-700"}`} />USV
+            <span className={sock.state.usvConnected ? "text-blue-400" : "text-zinc-600"}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full mr-1 ${sock.state.usvConnected ? "bg-blue-400" : "bg-zinc-700"}`} />USV
             </span>
-            <span className={state.gndConnected ? "text-emerald-400" : "text-zinc-600"}>
-              <span className={`inline-block h-1.5 w-1.5 rounded-full mr-1 ${state.gndConnected ? "bg-emerald-400" : "bg-zinc-700"}`} />GND
+            <span className={sock.state.gndConnected ? "text-emerald-400" : "text-zinc-600"}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full mr-1 ${sock.state.gndConnected ? "bg-emerald-400" : "bg-zinc-700"}`} />GND
             </span>
             <Separator orientation="vertical" className="h-3.5 bg-zinc-700" />
-            {state.handshakeMode === "hybrid" && <Badge variant="outline" className="text-[9px] border-emerald-800 text-emerald-400 py-0">QUANTUM-RESISTANT</Badge>}
-            <span className="text-zinc-600">TX:{state.pingCount}</span>
-            <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-red-400 animate-pulse"}`} />
+            {sock.state.handshakeMode === "hybrid" && <Badge variant="outline" className="text-[9px] border-emerald-800 text-emerald-400 py-0">QUANTUM-RESISTANT</Badge>}
+            <span className="text-zinc-600">TX:{sock.state.pingCount}</span>
+            <span className={`h-1.5 w-1.5 rounded-full ${sock.connected ? "bg-emerald-400" : "bg-red-400 animate-pulse"}`} />
           </div>
         </div>
       </header>
 
-      {/* Main Split */}
       <div className="flex-1 flex overflow-hidden">
-        {/* LEFT: Ship */}
         <div className="flex-1 p-3 overflow-hidden">
-          <ShipView ship={ship} />
+          <ShipView ship={sock.ship} />
         </div>
 
-        {/* RIGHT: Log + Controls */}
-        <div className="w-[600px] border-l border-zinc-800 flex flex-col flex-shrink-0">
-          <div className="px-3 py-2 border-b border-zinc-800 flex items-center gap-2 flex-shrink-0">
-            {state.handshakeState === "established" ? (
-              <>
-                <button onClick={() => fetch("/api/ping", { method: "POST" })}
-                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-medium rounded transition-colors">
-                  Send Telemetry
-                </button>
-                <span className="text-zinc-600 text-[9px]">Space</span>
-              </>
-            ) : (
-              <span className="text-zinc-500 text-[10px]">Waiting for handshake...</span>
-            )}
-            <div className="ml-auto flex items-center gap-2">
-              <button onClick={() => setShowKeyExchange(!showKeyExchange)}
-                className="px-2 py-1 text-[9px] text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800 transition-colors">
-                {showKeyExchange ? "Live Log" : "Key Exchange"}
+        <RightRail
+          logs={sock.logs}
+          keySteps={sock.keySteps}
+          ciphertext={sock.ciphertext}
+          handshakeEstablished={handshakeEstablished}
+          pingCount={sock.state.pingCount}
+          connected={sock.connected}
+          onReset={() => { fetch("/api/reset", { method: "POST" }); sock.resetLocal(); }}
+          actionSlot={
+            <>
+              <button onClick={() => fetch("/api/ping", { method: "POST" })}
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-medium rounded transition-colors">
+                Send Telemetry
               </button>
-              <button onClick={() => { fetch("/api/reset", { method: "POST" }); setLogs([]); setKeySteps([]); setShip(null); setCiphertext(""); }}
-                className="px-2 py-1 text-[9px] text-red-400 border border-red-800 rounded hover:bg-red-950 transition-colors">
-                Reset Demo
-              </button>
-            </div>
-          </div>
-
-          {/* Eve intercept */}
-          {ciphertext && (
-            <div className="px-3 py-2 border-b border-red-900/30 bg-red-950/10 flex-shrink-0">
-              <p className="text-[9px] text-red-400 uppercase font-semibold mb-0.5">Eve intercept</p>
-              <p className="text-[9px] text-red-300/30 font-mono break-all leading-tight">{ciphertext}</p>
-            </div>
-          )}
-
-          <div ref={logRef} className="flex-1 overflow-y-auto px-3 py-2">
-            {(showKeyExchange ? keySteps : logs).length === 0 ? (
-              <p className="text-zinc-600 text-xs mt-2">Waiting...</p>
-            ) : (
-              (showKeyExchange ? keySteps : logs).map((e, i) => (
-                <div key={i} className="py-px text-[11px] leading-relaxed">
-                  <span className="text-zinc-700 mr-1.5">{e.ts}</span>
-                  <span className={srcColor[e.source] || "text-zinc-400"}>{e.text}</span>
-                </div>
-              ))
-            )}
-            <div ref={logEndRef} />
-          </div>
-        </div>
+              <span className="text-zinc-600 text-[9px]">Space</span>
+            </>
+          }
+        />
       </div>
     </div>
   );
